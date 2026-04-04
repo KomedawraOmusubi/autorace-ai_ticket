@@ -25,7 +25,9 @@ def get_driver():
 def main():
     now = datetime.datetime.now(TOKYO_TZ)
     today_str = now.strftime("%Y-%m-%d")
-    csv_files = glob.glob("race_data_*.csv")
+    
+    # 【変更】data/ フォルダの中にあるCSVを探す
+    csv_files = glob.glob("data/race_data_*.csv")
     
     if not csv_files:
         print("処理対象のCSVが見つかりません。")
@@ -49,11 +51,13 @@ def main():
             start_time_str = str(df['発走予定'].iloc[0]).strip()
             
             # 【追加】URL列がない場合、ファイル名からURLを復元
-            # ファイル名形式: race_data_iizuka_1.csv -> parts[2]=iizuka, parts[3]=1
+            # ファイル名形式: data/race_data_iizuka_1R.csv などを想定
             if 'URL' in df.columns and not pd.isna(df['URL'].iloc[0]):
                 url = df['URL'].iloc[0]
             else:
-                parts = file.replace(".csv", "").split("_")
+                # パスを除いたファイル名のみを取得して分割
+                file_name_only = os.path.basename(file)
+                parts = file_name_only.replace(".csv", "").replace("R", "").split("_")
                 if len(parts) >= 4:
                     place = parts[2]
                     race_no = parts[3]
