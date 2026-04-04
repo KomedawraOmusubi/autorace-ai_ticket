@@ -1,3 +1,4 @@
+import os
 import time
 import datetime
 import pandas as pd
@@ -73,6 +74,10 @@ def main():
                 try:
                     # レース存在確認（最大3秒）
                     WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
+                    
+                    # 【対策】発走時刻のテキストが空でないことを確認してから取得
+                    wait.until(lambda d: d.find_element(By.ID, "race-result-current-race-start").text.strip() != "")
+                    
                     start_time_raw = driver.find_element(By.ID, "race-result-current-race-start").text.replace("発走予定", "").strip()
                     voting_deadline = driver.find_element(By.ID, "race-result-current-race-telvote").text.strip()
                 except:
@@ -90,8 +95,8 @@ def main():
                                 "車": no, "選手名": cols[1].text.split('\n')[0].strip(),
                                 "投票締切": voting_deadline, "発走予定": start_time_raw,
                                 "ハンデ": cols[2].text.strip(), "試走T": "-",
-                                "偏差": cols[4].text.strip(), "出走表_連率": cols[5].text.strip(),
-                                "URL": base_url
+                                "偏差": cols[4].text.strip(), "出走表_連率": cols[5].text.strip()
+                                # URL列を削除しました
                             }
 
                 # 詳細データ取得
@@ -111,9 +116,12 @@ def main():
 
                 if base_data:
                     df = pd.DataFrame(base_data.values()).sort_values("車")
-                    filename = f"race_data_{place}_{race_no}R.csv"
+                    
+                    # 【追加】data/ フォルダに保存
+                    filename = f"data/race_data_{place}_{race_no}R.csv"
+                    
                     df.to_csv(filename, index=False, encoding="utf-8-sig")
-                    print(f"  => {race_no}R CSV保存完了")
+                    print(f"  => {filename} 保存完了")
                     
                     # 【サイトへの配慮】1レース分の全取得が終わるごとに1秒待機
                     time.sleep(1)
