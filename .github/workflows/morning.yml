@@ -33,8 +33,8 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          # 【変更】dataフォルダ内のCSVをすべて追加対象にする
-          git add data/*.csv
+          # 【修正】削除されたファイルも反映させるため -A を追加
+          git add -A data/*.csv
           # 変更がない場合でもエラーにせず終了する設定
-          git commit -m "Create base race data [$(date)]" || exit 0
+          git commit -m "Cleanup old data and Create new base [$(date)]" || exit 0
           git push
