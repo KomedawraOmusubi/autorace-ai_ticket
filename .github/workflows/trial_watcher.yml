@@ -1,0 +1,38 @@
+name: 2-Trial-Watcher-Job
+
+on:
+  schedule:
+    - cron: '*/5 * * * *' # 5分おきに実行
+  workflow_dispatch:
+
+jobs:
+  check-and-fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas selenium webdriver-manager pytz
+
+      - name: Run Trial Fetcher
+        run: python trial_fetcher.py
+        env:
+          TZ: 'Asia/Tokyo'
+
+      - name: Commit and Push Updated CSVs
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add race_data_*.csv
+          git commit -m "Update trial times [$(date)]" || exit 0
+          git push
