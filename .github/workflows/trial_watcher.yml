@@ -1,4 +1,4 @@
-Name: 2-Trial-Watcher-Job
+name: 2-Trial-Watcher-Job
 
 on:
   schedule:
