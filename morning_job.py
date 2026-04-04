@@ -3,6 +3,7 @@ import time
 import datetime
 import pandas as pd
 import pytz
+import glob
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -47,6 +48,17 @@ def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
         pass
 
 def main():
+    # --- 【追加】古いCSVデータの削除処理 ---
+    print("古いデータを削除しています...")
+    old_files = glob.glob("data/*.csv")
+    for f in old_files:
+        try:
+            os.remove(f)
+            print(f"  => 削除完了: {f}")
+        except Exception as e:
+            print(f"  => 削除失敗: {f} ({e})")
+    # ------------------------------------
+
     now_jst = datetime.datetime.now(TOKYO_TZ)
     today_str = now_jst.strftime("%Y-%m-%d")
     places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
