@@ -69,8 +69,8 @@ def main():
             # 時刻判定
             dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(f"{today_str} {start_time_str}", "%Y-%m-%d %H:%M"))
             
-            # 判定条件: 発送10分前 以降 かつ 発送35分後 以内
-            start_trigger = dep_time - datetime.timedelta(minutes=10)
+            # 判定条件: 発送15分前 以降 かつ 発送35分後 以内
+            start_trigger = dep_time - datetime.timedelta(minutes=15)
             end_trigger = dep_time + datetime.timedelta(minutes=35)
             
             if start_trigger <= now <= end_trigger:
