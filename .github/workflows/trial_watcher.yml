@@ -2,10 +2,11 @@ name: 2-Trial-Watcher-Job
 
 on:
   schedule:
-    # 日本時間 08:00 〜 翌 00:30 の間、5分おきに実行
-    # UTC換算: 23:00 〜 15:30 (翌日の扱いを含む)
-    - cron: '*/5 23,0-14 * * *' # 23時台(JST 8時)と、0時〜14時台(JST 9時〜23時)
-    - cron: '0,5,10,15,20,25,30 15 * * *' # 15時台の30分まで(JST 00:30まで)
+    # 8分おきに実行 (0, 8, 16, 24, 32, 40, 48, 56分)
+    # 日本時間 08:00 〜 23:52 をカバー (UTC 23:00 〜 14:52)
+    - cron: '0,8,16,24,32,40,48,56 23,0-14 * * *'
+    # 日本時間 00:00 〜 00:32 (UTC 15:00 〜 15:32)
+    - cron: '0,8,16,24,32 15 * * *'
   workflow_dispatch:
 
 jobs:
@@ -36,7 +37,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          # 【変更】dataフォルダ内のCSVを保存対象にする
           git add data/*.csv
           git commit -m "Update trial times [$(date)]" || exit 0
           git push
