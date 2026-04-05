@@ -16,8 +16,8 @@ from selenium.common.exceptions import TimeoutException
 
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
-# --- 【重要】発行したGASのウェブアプリURLをここに貼り付けてください ---
-GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzBYfu5FWY7UuHCPfh9dcfQqCGR25sXuZqPVfq1qSeha0ZcyYyxHHxN6Z-Xy_xxxx/exec"
+# --- 【修正】新しく発行したウェブアプリURLに更新済み ---
+GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycby021uWvkNSFHCPJzA2Eq5ehjVmhFGPO4S9QeyJThkltGLeh2zo4OBz3b6jKYy5jsC9/exec"
 
 def get_driver():
     options = Options()
@@ -94,18 +94,14 @@ def main():
                     start_time_raw = driver.find_element(By.ID, "race-result-current-race-start").text.replace("発走予定", "").strip()
                     voting_deadline = driver.find_element(By.ID, "race-result-current-race-telvote").text.strip()
 
-                    # --- 【修正】発走時刻の15分前を計算して予約リストに追加 ---
+                    # 発走時刻の15分前を計算して予約リストに追加
                     if ":" in start_time_raw:
-                        # 文字列 "18:00" を時刻オブジェクトに変換
                         race_time = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
-                        # 15分引く
                         trigger_time = race_time - datetime.timedelta(minutes=15)
-                        # GASが読み取れる形式 (ISO) に戻す
                         target_datetime = trigger_time.strftime("%Y-%m-%dT%H:%M:00")
                         
                         if target_datetime not in target_times:
                             target_times.append(target_datetime)
-                    # ------------------------------------------------------
 
                 except:
                     print(f"  => {race_no}R は見つかりません。次の会場へ移ります。")
@@ -147,8 +143,8 @@ def main():
                     time.sleep(1)
 
         if target_times:
-            # 重複排除・ソート・最大24件制限
-            final_schedule = sorted(list(set(target_times)))[:24]
+            # 【重要】GASの1プロジェクト上限に合わせ、重複排除・ソート後の未来20件を送信
+            final_schedule = sorted(list(set(target_times)))[:20]
             print(f"GASへ {len(final_schedule)} 件の予約（発走15分前）を送信しています...")
             try:
                 resp = requests.post(GAS_WEBAPP_URL, json={"times": final_schedule})
