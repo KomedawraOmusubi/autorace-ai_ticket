@@ -4,6 +4,7 @@ import datetime
 import pandas as pd
 import pytz
 import glob
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -14,6 +15,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
+
+# --- 【重要】発行したGASのウェブアプリURLをここに貼り付けてください ---
+GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzBYfu5FWY7UuHCPfh9dcfQqCGR25sXuZqPVfq1qSeha0ZcyYyxHHxN6Z-Xy_xxxx/exec"
 
 def get_driver():
     options = Options()
@@ -34,7 +38,6 @@ def get_safe_text(cols, idx):
 def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
     driver.get(target_url)
     try:
-        # 各タブの読み込み待機は最大3秒に設定
         WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
         t_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
         for t_row in t_rows:
@@ -48,8 +51,11 @@ def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
         pass
 
 def main():
-    # --- 【追加】古いCSVデータの削除処理 ---
+    target_times = []
+
     print("古いデータを削除しています...")
+    if not os.path.exists("data"):
+        os.makedirs("data")
     old_files = glob.glob("data/*.csv")
     for f in old_files:
         try:
@@ -57,7 +63,6 @@ def main():
             print(f"  => 削除完了: {f}")
         except Exception as e:
             print(f"  => 削除失敗: {f} ({e})")
-    # ------------------------------------
 
     now_jst = datetime.datetime.now(TOKYO_TZ)
     today_str = now_jst.strftime("%Y-%m-%d")
@@ -69,7 +74,6 @@ def main():
         for place in places:
             print(f"--- {place.upper()} 取得開始 ---")
             
-            # 会場が開催されているか1Rでチェック
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1"
             driver.get(check_url)
             try:
@@ -84,14 +88,25 @@ def main():
                 driver.get(f"{base_url}/program")
                 
                 try:
-                    # レース存在確認（最大3秒）
                     WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
-                    
-                    # 【対策】発走時刻のテキストが空でないことを確認してから取得
                     wait.until(lambda d: d.find_element(By.ID, "race-result-current-race-start").text.strip() != "")
                     
                     start_time_raw = driver.find_element(By.ID, "race-result-current-race-start").text.replace("発走予定", "").strip()
                     voting_deadline = driver.find_element(By.ID, "race-result-current-race-telvote").text.strip()
+
+                    # --- 【修正】発走時刻の15分前を計算して予約リストに追加 ---
+                    if ":" in start_time_raw:
+                        # 文字列 "18:00" を時刻オブジェクトに変換
+                        race_time = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
+                        # 15分引く
+                        trigger_time = race_time - datetime.timedelta(minutes=15)
+                        # GASが読み取れる形式 (ISO) に戻す
+                        target_datetime = trigger_time.strftime("%Y-%m-%dT%H:%M:00")
+                        
+                        if target_datetime not in target_times:
+                            target_times.append(target_datetime)
+                    # ------------------------------------------------------
+
                 except:
                     print(f"  => {race_no}R は見つかりません。次の会場へ移ります。")
                     break
@@ -108,10 +123,8 @@ def main():
                                 "投票締切": voting_deadline, "発走予定": start_time_raw,
                                 "ハンデ": cols[2].text.strip(), "試走T": "-",
                                 "偏差": cols[4].text.strip(), "出走表_連率": cols[5].text.strip()
-                                # URL列を削除しました
                             }
 
-                # 詳細データ取得
                 urls = {
                     "recent10": f"{base_url}/recent10", "good5": f"{base_url}/good5", 
                     "wet5": f"{base_url}/wet5", "han5": f"{base_url}/han5", 
@@ -128,15 +141,22 @@ def main():
 
                 if base_data:
                     df = pd.DataFrame(base_data.values()).sort_values("車")
-                    
-                    # 【追加】data/ フォルダに保存
                     filename = f"data/race_data_{place}_{race_no}R.csv"
-                    
                     df.to_csv(filename, index=False, encoding="utf-8-sig")
                     print(f"  => {filename} 保存完了")
-                    
-                    # 【サイトへの配慮】1レース分の全取得が終わるごとに1秒待機
                     time.sleep(1)
+
+        if target_times:
+            # 重複排除・ソート・最大24件制限
+            final_schedule = sorted(list(set(target_times)))[:24]
+            print(f"GASへ {len(final_schedule)} 件の予約（発走15分前）を送信しています...")
+            try:
+                resp = requests.post(GAS_WEBAPP_URL, json={"times": final_schedule})
+                print(f"GAS応答: {resp.text}")
+            except Exception as e:
+                print(f"GAS送信エラー: {e}")
+        else:
+            print("本日のレース予定は見つかりませんでした。")
 
     finally:
         driver.quit()
