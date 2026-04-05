@@ -1,20 +1,24 @@
 name: 1-Morning-Data-Job
 
 on:
-  # 定期実行(cron)は削除しました
+  # 定期実行(cron)は削除。GASからの通知と手動実行のみに制限
   workflow_dispatch: # 手動実行ボタン（テスト用）
   repository_dispatch:
-    types: [check-schedule] # GASの午前1時トリガーからこれを受けて起動します
+    types: [check-schedule] # GASの「深夜1時・昼12時・夕方15時」の合図を受けて起動
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # リポジトリへの書き込み権限を明示的に許可
     permissions:
       contents: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # 最新の変更を確実に取得
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,12 +38,15 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          # ファイルの追加・削除の両方を反映
+          
+          # 1. 削除された古いファイルと新しく作成されたファイルをすべてステージング
           git add -A data/*.csv
-          # 変更がある場合のみコミット
+          
+          # 2. 変更（追加・削除・更新）がある場合のみコミット
           if ! git diff --cached --quiet; then
-            git commit -m "Cleanup old data and Create new base [$(date)]"
-            git push
+            git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
+            # 3. 強制的にプッシュせず、通常のプッシュ（コンフリクト防止）
+            git push origin main
           else
-            echo "No changes to commit"
+            echo "No changes in CSV files. Skipping commit."
           fi
