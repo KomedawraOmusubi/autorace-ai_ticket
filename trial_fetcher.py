@@ -21,98 +21,119 @@ def get_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    # ユーザーエージェントを設定してブロックを回避
+    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     return driver
 
 def main():
+    # 現在時刻をJSTで取得
     now = datetime.datetime.now(TOKYO_TZ)
     today_str = now.strftime("%Y-%m-%d")
     
-    # data/ フォルダの中にあるCSVを探す
+    # data/ フォルダの中にあるCSVをすべて取得
     csv_files = glob.glob("data/race_data_*.csv")
     
     if not csv_files:
-        print("処理対象のCSVが見つかりません。")
+        print("処理対象のCSVファイル（data/*.csv）が見つかりません。")
         return
 
     driver = None
 
     for file in csv_files:
         try:
+            # データの読み込み
             df = pd.read_csv(file)
             
-            # 発走予定が取得できていない場合はスキップ
+            # 1. 発走予定時刻のチェック
+            if '発走予定' not in df.columns:
+                continue
+                
             start_val = df['発走予定'].iloc[0]
             if pd.isna(start_val) or str(start_val).strip() in ["", "-", "nan"]:
                 continue
 
-            # すでに試走タイムが取得済み（ハイフン以外）ならスキップ
-            if str(df['試走T'].iloc[0]) != "-":
-                print(f"スキップ: {file} (試走データ取得済み)")
+            # 2. すでに試走タイムが取得済み（ハイフン以外）ならスキップ
+            if '試走T' in df.columns and str(df['試走T'].iloc[0]) != "-":
+                # print(f"スキップ: {file} (取得済み)")
                 continue
                 
             start_time_str = str(start_val).strip()
+            # 時刻文字列をdatetimeオブジェクトに変換
+            try:
+                dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(f"{today_str} {start_time_str}", "%Y-%m-%d %H:%M"))
+            except ValueError:
+                continue
             
-            # 発走予定時刻をオブジェクト化
-            dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(f"{today_str} {start_time_str}", "%Y-%m-%d %H:%M"))
-            
-            # 【重要】GASから「発走15分前」に叩かれるため、
-            # 現在時刻が「発走時刻より前」であれば、そのファイルを処理対象とする
+            # 3. 【判定】現在が発走予定時刻より「前」であれば処理対象とする
+            # GASから発走15分前に起動されるため、通常は True になる
             if now < dep_time:
-                print(f"【実行対象】{file} (発走予定: {start_time_str}) の試走タイム確認を開始します。")
+                print(f"【実行】{file} の試走タイム確認を開始（発走予定: {start_time_str}）")
                 
-                # ファイル名からURLを復元 (例: data/race_data_iizuka_1R.csv)
-                file_name_only = os.path.basename(file)
-                parts = file_name_only.replace(".csv", "").replace("R", "").split("_")
+                # ファイル名から場所とレース番号を抽出 (例: data/race_data_iizuka_1R.csv)
+                # ファイル名を "_" で区切って、後ろから2番目が場所、1番目がレース番号
+                file_name_only = os.path.basename(file).replace(".csv", "")
+                parts = file_name_only.split("_") # ['race', 'data', 'iizuka', '1R']
                 
                 if len(parts) >= 4:
                     place = parts[2]
-                    race_no = parts[3]
-                    url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
+                    race_no = parts[3].replace("R", "")
+                    # URL例: https://autorace.jp/race_info/Program/iizuka/2024-03-20_1
+                    target_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
                 else:
+                    print(f"  => ファイル名形式エラー: {file}")
                     continue
 
-                if driver is None: driver = get_driver()
-                driver.get(f"{url}/program")
+                # WebDriverの起動（必要な時だけ1回起動）
+                if driver is None: 
+                    driver = get_driver()
                 
-                # 試走データが出るまで少し待機（最大10秒）
+                driver.get(target_url)
+                
+                # 試走表が出るまで待機
                 try:
-                    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
-                    time.sleep(2) # 念のための安定待ち
+                    WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
+                    time.sleep(3) # 読み込み安定待ち
                 except:
-                    print(f"  => サイト読み込み失敗: {file}")
+                    print(f"  => サイトの読み込みに失敗しました: {target_url}")
                     continue
                 
+                # テーブルから試走タイム（4番目の列）を抽出
                 rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
                 trial_results = {}
-                found = False
+                found_count = 0
                 
                 for row in rows:
                     cols = row.find_elements(By.TAG_NAME, "td")
                     if len(cols) >= 4:
-                        car_no = cols[0].text.strip()
-                        t_time = cols[3].text.strip()
-                        # 数値であり、かつ空でない場合のみ採用
-                        if car_no.isdigit() and t_time and t_time not in [".", "-", ""]:
-                            trial_results[int(car_no)] = t_time
-                            found = True
+                        car_no_str = cols[0].text.strip()
+                        trial_time_str = cols[3].text.strip() # 4列目が試走タイム
+                        
+                        if car_no_str.isdigit() and trial_time_str and trial_time_str not in [".", "-", ""]:
+                            trial_results[int(car_no_str)] = trial_time_str
+                            found_count += 1
                 
-                if found:
-                    # データを更新して保存
-                    df['試走T'] = df['車'].map(trial_results).fillna(df['試走T'])
+                if found_count >= 1:
+                    # CSVの「試走T」列を更新
+                    # df['車'] の番号に基づいて trial_results から値を割り当て
+                    df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
+                    
+                    # 上書き保存
                     df.to_csv(file, index=False, encoding="utf-8-sig")
-                    print(f"  => {file} の試走タイムを更新しました。")
+                    print(f"  => 更新完了: {found_count}車分の試走タイムを保存しました。")
                     
-                    # ここで予測ロジックやLINE通知を呼び出すならここに追加
+                    # --- ここに予測計算やLINE通知のコードを追加可能 ---
+                    
                 else:
-                    print(f"  => {file}: 試走データがまだ公開されていません。")
-                    
+                    print(f"  => 試走タイムはまだ更新されていませんでした。")
+            
         except Exception as e:
-            print(f"ファイル処理エラー ({file}): {e}")
+            print(f"エラー発生 ({file}): {e}")
             continue
 
     if driver:
         driver.quit()
+        print("ブラウザを終了しました。")
 
 if __name__ == "__main__":
     main()
