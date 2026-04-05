@@ -16,8 +16,8 @@ from selenium.common.exceptions import TimeoutException
 
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
-# --- 【修正】新しく発行したウェブアプリURLに更新済み ---
-GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycby021uWvkNSFHCPJzA2Eq5ehjVmhFGPO4S9QeyJThkltGLeh2zo4OBz3b6jKYy5jsC9/exec"
+# --- 【修正】1000028958.jpg で発行された最新のURLに更新 ---
+GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbz5lHeaHU1-oVjJ70CLNAdSMJaUQpzMvbne2bbhshdfCBYNqLjIwhgdX9hVcR2pKfn/exec"
 
 def get_driver():
     options = Options()
@@ -107,6 +107,7 @@ def main():
                     print(f"  => {race_no}R は見つかりません。次の会場へ移ります。")
                     break
 
+                # --- データ取得処理 ---
                 base_data = {}
                 rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
                 for row in rows:
@@ -142,10 +143,11 @@ def main():
                     print(f"  => {filename} 保存完了")
                     time.sleep(1)
 
+        # --- GASへスケジュール送信 ---
         if target_times:
-            # 【重要】GASの1プロジェクト上限に合わせ、重複排除・ソート後の未来20件を送信
+            # 重複を排除してソートし、未来の20件に絞る
             final_schedule = sorted(list(set(target_times)))[:20]
-            print(f"GASへ {len(final_schedule)} 件の予約（発走15分前）を送信しています...")
+            print(f"GASへ {len(final_schedule)} 件の予約を送信しています...")
             try:
                 resp = requests.post(GAS_WEBAPP_URL, json={"times": final_schedule})
                 print(f"GAS応答: {resp.text}")
