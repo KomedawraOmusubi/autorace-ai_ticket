@@ -39,13 +39,15 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. 削除された古いファイルと新しく作成されたファイルをすべてステージング
-          git add -A data/*.csv
+          # 1. 変更（新規・修正・削除）をステージング
+          # ファイルが存在しない場合のエラーを防ぐため、ディレクトリ指定か-Aを使用
+          git add data/ || true
           
           # 2. 変更（追加・削除・更新）がある場合のみコミット
           if ! git diff --cached --quiet; then
             git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 3. 強制的にプッシュせず、通常のプッシュ（コンフリクト防止）
+            # 3. コンフリクト防止のため、一度プルしてからプッシュ
+            git pull --rebase origin main
             git push origin main
           else
             echo "No changes in CSV files. Skipping commit."
