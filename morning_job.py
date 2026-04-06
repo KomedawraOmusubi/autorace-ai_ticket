@@ -17,7 +17,8 @@ from selenium.common.exceptions import TimeoutException
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
 # --- GASのURL ---
-GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwXJ1_LKVNENeclnx40kcn5MQ4MnYYAdwpT8gOSIsT2JpmcU5jwm9WO9UIeyOG69asxKQ/exec"
+GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzFchSYj2cTIxZc7izCtuj2rzS1MxVMQDPzE_7fz6Y0zEhYagSfmGDKepvSkbYRLjThXQ/exec
+"
 
 def get_driver():
     options = Options()
