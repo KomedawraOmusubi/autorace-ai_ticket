@@ -6,6 +6,7 @@ import pytz
 import glob
 import requests
 import re
+import random
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -52,7 +53,8 @@ def get_rank_score(rank_text, max_score):
 def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
     """各タブ（近10走など）のデータを取得してdata_mapに格納"""
     driver.get(target_url)
-    time.sleep(1) # サーバー負荷軽減と読み込み待ち
+    # 修正：サーバー負荷軽減のため1.0〜3.0秒のランダム待機
+    time.sleep(random.uniform(1.0, 3.0))
     try:
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
         t_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
@@ -102,6 +104,9 @@ def main():
                 
                 try:
                     driver.get(f"{base_url}/program")
+                    # 修正：ページ遷移後の待機
+                    time.sleep(random.uniform(1.0, 3.0))
+                    
                     wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
                     
                     # 発走時刻と締切の取得
@@ -201,7 +206,8 @@ def main():
                         filename = f"data/race_data_{place}_{race_no}R.csv"
                         df.to_csv(filename, index=False, encoding="utf-8-sig")
                         print(f"  => {filename} 保存完了")
-                        time.sleep(1)
+                        # 修正：次のレース取得前にランダム待機
+                        time.sleep(random.uniform(1.0, 3.0))
 
                 except Exception as e:
                     print(f"  => {race_no}R 処理エラー: {e}")
