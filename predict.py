@@ -4,6 +4,7 @@ import datetime
 import pandas as pd
 import pytz
 import glob
+import random
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -66,34 +67,35 @@ def main():
                 continue
             
             # 3. 【判定】現在が発走予定時刻より「前」であれば処理対象とする
-            # GASから発走15分前に起動されるため、通常は True になる
             if now < dep_time:
                 print(f"【実行】{file} の試走タイム確認を開始（発走予定: {start_time_str}）")
                 
-                # ファイル名から場所とレース番号を抽出 (例: data/race_data_iizuka_1R.csv)
-                # ファイル名を "_" で区切って、後ろから2番目が場所、1番目がレース番号
+                # ファイル名から場所とレース番号を抽出
                 file_name_only = os.path.basename(file).replace(".csv", "")
-                parts = file_name_only.split("_") # ['race', 'data', 'iizuka', '1R']
+                parts = file_name_only.split("_")
                 
                 if len(parts) >= 4:
                     place = parts[2]
                     race_no = parts[3].replace("R", "")
-                    # URL例: https://autorace.jp/race_info/Program/iizuka/2024-03-20_1
                     target_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
                 else:
                     print(f"  => ファイル名形式エラー: {file}")
                     continue
 
-                # WebDriverの起動（必要な時だけ1回起動）
+                # WebDriverの起動
                 if driver is None: 
                     driver = get_driver()
                 
                 driver.get(target_url)
                 
+                # 負荷軽減のためのランダム待機 (1.0〜3.0秒)
+                time.sleep(random.uniform(1.0, 3.0))
+                
                 # 試走表が出るまで待機
                 try:
                     WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
-                    time.sleep(3) # 読み込み安定待ち
+                    # 読み込み安定待ち (1.0〜3.0秒)
+                    time.sleep(random.uniform(1.0, 3.0))
                 except:
                     print(f"  => サイトの読み込みに失敗しました: {target_url}")
                     continue
@@ -115,17 +117,16 @@ def main():
                 
                 if found_count >= 1:
                     # CSVの「試走T」列を更新
-                    # df['車'] の番号に基づいて trial_results から値を割り当て
                     df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
                     
                     # 上書き保存
                     df.to_csv(file, index=False, encoding="utf-8-sig")
                     print(f"  => 更新完了: {found_count}車分の試走タイムを保存しました。")
-                    
-                    # --- ここに予測計算やLINE通知のコードを追加可能 ---
-                    
                 else:
                     print(f"  => 試走タイムはまだ更新されていませんでした。")
+                    
+                # 次のファイル処理前に少し休止
+                time.sleep(random.uniform(1.0, 3.0))
             
         except Exception as e:
             print(f"エラー発生 ({file}): {e}")
