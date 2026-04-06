@@ -1,3 +1,4 @@
+
 import os
 import time
 import datetime
@@ -37,23 +38,20 @@ def get_safe_text(cols, idx):
     return "-"
 
 def get_rank_score(rank_text, max_score):
-    """過去実績（画像[3]の前1走など）からスコアを算出"""
     if pd.isna(rank_text) or rank_text == '-':
         return 0
     match = re.search(r'(\d+)着', str(rank_text))
     if not match:
         return 0
     rank = int(match.group(1))
-    # 前日予想用スコアリング
     score = max_score - (rank - 1) * (max_score / 4.0)
     return max(0, score)
 
 def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
-    """詳細タブのデータ取得。負荷軽減のため待機時間を3秒に設定"""
     driver.get(target_url)
-    time.sleep(2)  # ここを3秒に延長
+    time.sleep(3) # 負荷軽減
     try:
-        WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
         t_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
         for t_row in t_rows:
             t_cols = t_row.find_elements(By.TAG_NAME, "td")
@@ -62,15 +60,15 @@ def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
                 if t_no in data_map:
                     for key, idx in col_indices.items():
                         data_map[t_no][key] = get_safe_text(t_cols, idx)
-    except:
-        pass
+    except Exception as e:
+        print(f"      タブ取得エラー ({target_url.split('/')[-1]}): {e}")
 
 def main():
     target_times = []
     if not os.path.exists("data"):
         os.makedirs("data")
     
-    # 実行のたびに最新状態を反映するため古いデータをリセット（必要に応じて変更してください）
+    # 実行のたびに古いデータをクリア
     old_files = glob.glob("data/*.csv")
     for f in old_files:
         try: os.remove(f)
@@ -80,7 +78,7 @@ def main():
     today_str = now_jst.strftime("%Y-%m-%d")
     places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
     driver = get_driver()
-    wait = WebDriverWait(driver, 5)
+    wait = WebDriverWait(driver, 10)
 
     try:
         for place in places:
@@ -88,7 +86,7 @@ def main():
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1"
             driver.get(check_url)
             try:
-                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
+                WebDriverWait(driver, 7).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
             except TimeoutException:
                 print(f"  => {place.upper()} スキップ: 本日の開催がないかデータ未公開")
                 continue
@@ -97,25 +95,25 @@ def main():
                 race_no = str(r)
                 filename = f"data/race_data_{place}_{race_no}R.csv"
                 
-                # 【スキップロジック1】既にCSVが存在すればスキップ
                 if os.path.exists(filename):
-                    print(f"  => {race_no}R スキップ: CSVデータが既に存在します")
                     continue
 
                 base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
                 try:
                     driver.get(f"{base_url}/program")
-                    WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
-                    wait.until(lambda d: d.find_element(By.ID, "race-result-current-race-start").text.strip() != "")
+                    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
                     
-                    start_time_raw = driver.find_element(By.ID, "race-result-current-race-start").text.replace("発走予定", "").strip()
+                    # 発走時刻の取得とクレンジング
+                    raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
+                    # [1] ソースにある「[変更]」などの余計な文字を正規表現で除去
+                    start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
+                    
                     voting_deadline = driver.find_element(By.ID, "race-result-current-race-telvote").text.strip()
 
                     if ":" in start_time_raw:
                         race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
                         race_time = TOKYO_TZ.localize(race_time_obj)
                         
-                        # 【スキップロジック2】発走時刻を過ぎていれば（終了レース）スキップ
                         if now_jst > race_time:
                             print(f"  => {race_no}R スキップ: 既に発走済みです")
                             continue
@@ -132,22 +130,25 @@ def main():
                         if len(cols) >= 6:
                             no = cols.text.strip()
                             if no.isdigit():
+                                # 選手名取得の修正：改行で分割して1件目を取得
+                                name_parts = cols.text.split('\n')
+                                name = name_parts.strip() if name_parts else "-"
+                                
                                 base_data[no] = {
-                                    "車": no, "選手名": cols[4].text.split('\n').strip(),
+                                    "車": no, "選手名": name,
                                     "投票締切": voting_deadline, "発走予定": start_time_raw,
-                                    "ハンデ": cols[3].text.strip(), "試走T": "-",
-                                    "偏差": cols[5].text.strip(), "出走表_連率": cols[6].text.strip()
+                                    "ハンデ": cols.text.strip(), "試走T": "-",
+                                    "偏差": cols.text.strip(), "出走表_連率": cols.text.strip()
                                 }
 
                     if base_data:
-                        # タブデータの取得（待機時間を3秒に設定済み）
-                        urls = {"recent10": f"{base_url}/recent10", "recent90": f"{base_url}/recent90"}
-                        fetch_tab_data(driver, wait, urls["recent10"], base_data, {"前1走":2, "前2走":3, "前3走":4})
-                        fetch_tab_data(driver, wait, urls["recent90"], base_data, {"90平均ST":5, "90良10平競":10})
+                        # タブデータの取得
+                        fetch_tab_data(driver, wait, f"{base_url}/recent10", base_data, {"前1走":2, "前2走":3, "前3走":4})
+                        fetch_tab_data(driver, wait, f"{base_url}/recent90", base_data, {"90平均ST":5, "90良10平競":10})
 
                         df = pd.DataFrame(base_data.values()).sort_values("車")
 
-                        # --- 前日予想計算（画像[4, 7, 8]の項目を使用） ---
+                        # 数値変換
                         for col in ['ハンデ', '偏差', '90平均ST', '90良10平競']:
                             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
@@ -156,14 +157,12 @@ def main():
                         scores, times = [], []
 
                         for _, row in df.iterrows():
-                            # 近況実績スコア
                             s = get_rank_score(row.get('前1走', '-'), 30) + get_rank_score(row.get('前2走', '-'), 20)
                             base_time = row['90良10平競']
                             if base_time == 0:
                                 times.append(0.0); scores.append(0.0)
                                 continue
                             
-                            # タイム計算：90日平均 + ハンデ補正 + 偏差補正 + ST相対評価
                             f_time = base_time + (row['ハンデ'] * HANDI_WEIGHT) + ((row['偏差'] / 1000) * DEV_WEIGHT) + ((row['90平均ST'] - race_avg_st) * ST_WEIGHT)
                             times.append(round(f_time, 3))
                             scores.append(round(s + (3.600 - f_time) * 1000, 2))
@@ -174,8 +173,6 @@ def main():
 
                         df.to_csv(filename, index=False, encoding="utf-8-sig")
                         print(f"  => {filename} 保存完了")
-                        
-                        # 1レース終了ごとに3秒待機
                         time.sleep(2)
 
                 except Exception as e:
@@ -183,8 +180,9 @@ def main():
                     continue 
 
         if target_times:
-            # GASへの一括送信
-            requests.post(GAS_WEBAPP_URL, json={"times": sorted(list(set(target_times)))[:20]}, timeout=15)
+            # 重複削除とソートをしてGASへ送信
+            unique_times = sorted(list(set(target_times)))[:20]
+            requests.post(GAS_WEBAPP_URL, json={"times": unique_times}, timeout=15)
 
     finally:
         driver.quit()
