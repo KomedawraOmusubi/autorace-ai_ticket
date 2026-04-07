@@ -32,6 +32,54 @@ def get_driver():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     return driver
 
+def print_betting_guide(df, place, race_no):
+    """
+    コンソールにリッチな買い目を出力する
+    """
+    # 予想スコア順にソート
+    sdf = df.sort_values('予想スコア', ascending=False).reset_index(drop=True)
+    
+    # 上位3名を抽出
+    top1 = int(sdf.iloc[0]['車'])
+    top2 = int(sdf.iloc[1]['車'])
+    top3 = int(sdf.iloc[2]['車'])
+    
+    # 穴候補（スコア4位以下で、上昇評価または逃げ評価がある選手）
+    ana_candidates = sdf.iloc[3:][(sdf['上昇評価'] >= 10) | (sdf['逃げ評価'] >= 15)]
+    ana = int(ana_candidates.iloc[0]['車']) if not ana_candidates.empty else None
+
+    print("\n" + "="*50)
+    print(f" 【{place} {race_no}R】 直前予想・推奨買い目 ")
+    print("="*50)
+    
+    # 評価一覧
+    marks = ["◎", "○", "▲", "△", "注"]
+    for i in range(min(5, len(sdf))):
+        car = int(sdf.iloc[i]['車'])
+        score = int(sdf.iloc[i]['予想スコア'])
+        tags = []
+        if sdf.iloc[i]['逃げ評価'] > 0: tags.append("逃げ")
+        if sdf.iloc[i]['上昇評価'] >= 10: tags.append("上昇")
+        if sdf.iloc[i]['ST評価'] > 0: tags.append("ST速")
+        tag_str = " ".join([f"[{t}]" for t in tags])
+        print(f"{marks[i]} {car}号車 (Score: {score:3d}) {tag_str}")
+    
+    print("-" * 50)
+    
+    # 本命
+    print(f"■ 本命 (三連単): {top1}-{top2}-{top3}, {top1}-{top3}-{top2}, {top2}-{top1}-{top3}")
+    print(f"■ 本命 (二連単): {top1}-{top2}, {top2}-{top1}")
+    print(f"■ 本命 (三連複): {top1}={top2}={top3}")
+    
+    # 穴
+    if ana:
+        print("-" * 50)
+        print(f"■ 穴   (三連単): {ana}-{top1}-{top2}, {top1}-{ana}-{top2}")
+        print(f"■ 穴   (二連単): {ana}-{top1}, {ana}-{top2}")
+        print(f"■ 穴   (三連複): {ana}={top1}={top2}")
+    
+    print("=" * 50 + "\n")
+
 def calculate_predictions(df):
     """
     直前予想ロジックの実装（追い上げ性能・エンジン上昇度・逃げ評価を追加）
@@ -53,31 +101,24 @@ def calculate_predictions(df):
     df['直前予想競走タイム'] = (df['平均競走タイム'] / df['平均試走']) * df['試走T']
 
     # --- 新規ロジック1: エンジン上昇度 ---
-    # 前三走→前二走、前二走→前一走でタイムが短縮されているか
     df['上昇度'] = (df['前三競走T'] - df['前二競走T']) + (df['前二競走T'] - df['前一競走T'])
     df['上昇評価'] = df['上昇度'].apply(lambda x: 10 if x > 0 else (5 if x == 0 else 0))
 
     # --- 新規ロジック2: 追い上げ能力 (100m単価) ---
-    # 3.0km(3000m)を想定。100m走るのに必要な秒数
     df['100m単価'] = df['直前予想競走タイム'] / 31.0
-    
-    # 後続車との比較用（簡易的に、自分より外枠の全選手との単価差の平均を見る）
     df['追い上げスコア'] = 0
     for i in range(len(df)):
         my_unit = df.loc[i, '100m単価']
-        # 自分より後ろ（車番が大きい）の選手たち
         followers = df.iloc[i+1:]
         if not followers.empty:
-            # 後ろの選手に自分より0.01秒以上速い（単価が低い）人がいればマイナス
             faster_followers = followers[followers['100m単価'] < (my_unit - 0.01)]
             if not faster_followers.empty:
                 df.loc[i, '追い上げスコア'] = -10
 
     # --- 新規ロジック3: 1,2,3号車の逃げ ---
     df['逃げ評価'] = 0
-    for i in [0, 1, 2]: # 1,2,3号車（インデックス0,1,2）
+    for i in [0, 1, 2]: 
         if i < len(df):
-            # 試走Tが上位2位以内 かつ 平均STが0.15以下（速い）なら逃げ切り期待
             trial_rank = df['試走T'].rank(method='min').iloc[i]
             if trial_rank <= 2 and df.loc[i, '平均st'] <= 0.15:
                 df.loc[i, '逃げ評価'] = 15
@@ -186,6 +227,9 @@ def main():
                     df = calculate_predictions(df)
                     df.to_csv(file, index=False, encoding="utf-8-sig")
                     print("成功・予想完了")
+                    
+                    # リッチなPrint出力を追加
+                    print_betting_guide(df, place, race_no)
                 else:
                     print("試走未更新のため待機")
                 
