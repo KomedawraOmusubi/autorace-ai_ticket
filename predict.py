@@ -34,11 +34,11 @@ def get_driver():
 
 def calculate_predictions(df):
     """
-    直前予想ロジックの実装
+    直前予想ロジックの実装（追い上げ性能・エンジン上昇度・逃げ評価を追加）
     """
-    # 1. 数値変換（計算不能な文字列をNaNにする）
+    # 1. 数値変換
     cols_to_fix = ['前一競走T', '前一試走', '前二競走T', '前二試走', '前三競走T', '前三試走', 
-                   '前一順', '前二順', '前三順', '前一ST', '前二ST', '前三ST', '試走T']
+                   '前一順', '前二順', '前三順', '前一ST', '前二ST', '前三ST', '試走T', 'ハンデ', '良5順位', '偏差']
     for col in cols_to_fix:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -50,42 +50,66 @@ def calculate_predictions(df):
     df['平均st'] = df[['前一ST', '前二ST', '前三ST']].mean(axis=1)
 
     # 3. 直前予想競走タイムの算出
-    # 式: (平均競走タイム ÷ 平均試走) × 試走タイム
     df['直前予想競走タイム'] = (df['平均競走タイム'] / df['平均試走']) * df['試走T']
 
-    # 4. 偏差判定（出場選手の中央値と比較）
-    # 偏差(ここでは良5走などの順位やタイムのバラツキを想定)
+    # --- 新規ロジック1: エンジン上昇度 ---
+    # 前三走→前二走、前二走→前一走でタイムが短縮されているか
+    df['上昇度'] = (df['前三競走T'] - df['前二競走T']) + (df['前二競走T'] - df['前一競走T'])
+    df['上昇評価'] = df['上昇度'].apply(lambda x: 10 if x > 0 else (5 if x == 0 else 0))
+
+    # --- 新規ロジック2: 追い上げ能力 (100m単価) ---
+    # 3.0km(3000m)を想定。100m走るのに必要な秒数
+    df['100m単価'] = df['直前予想競走タイム'] / 31.0
+    
+    # 後続車との比較用（簡易的に、自分より外枠の全選手との単価差の平均を見る）
+    df['追い上げスコア'] = 0
+    for i in range(len(df)):
+        my_unit = df.loc[i, '100m単価']
+        # 自分より後ろ（車番が大きい）の選手たち
+        followers = df.iloc[i+1:]
+        if not followers.empty:
+            # 後ろの選手に自分より0.01秒以上速い（単価が低い）人がいればマイナス
+            faster_followers = followers[followers['100m単価'] < (my_unit - 0.01)]
+            if not faster_followers.empty:
+                df.loc[i, '追い上げスコア'] = -10
+
+    # --- 新規ロジック3: 1,2,3号車の逃げ ---
+    df['逃げ評価'] = 0
+    for i in [0, 1, 2]: # 1,2,3号車（インデックス0,1,2）
+        if i < len(df):
+            # 試走Tが上位2位以内 かつ 平均STが0.15以下（速い）なら逃げ切り期待
+            trial_rank = df['試走T'].rank(method='min').iloc[i]
+            if trial_rank <= 2 and df.loc[i, '平均st'] <= 0.15:
+                df.loc[i, '逃げ評価'] = 15
+
+    # 4. 偏差判定
     if '偏差' in df.columns:
         median_dev = df['偏差'].median()
         df['偏差評価'] = df['偏差'].apply(lambda x: 10 if x <= median_dev else 0)
     else:
         df['偏差評価'] = 0
 
-    # 5. ST評価（同ハンの選手間での比較）
+    # 5. ST評価
     df['ST評価'] = 0
     if 'ハンデ' in df.columns:
         for hd in df['ハンデ'].unique():
+            if pd.isna(hd): continue
             mask = df['ハンデ'] == hd
-            if mask.any():
-                min_st = df.loc[mask, '平均st'].min()
-                # 同ハン内で最も平均STが速い選手に加点
-                df.loc[mask & (df['平均st'] == min_st), 'ST評価'] = 10
+            min_st = df.loc[mask, '平均st'].min()
+            df.loc[mask & (df['平均st'] == min_st), 'ST評価'] = 10
 
-    # 6. 配点式によるスコアリング
-    # 予想タイムが速い順にスコア（1位:50点、2位:40点...）
+    # 6. 配点式
     df['タイム順位'] = df['直前予想競走タイム'].rank(method='min')
     df['タイム評価'] = df['タイム順位'].apply(lambda x: max(0, 60 - (x * 10)))
 
-    # 良5順位の評価（小さいほど良い）
     if '良5順位' in df.columns:
-        df['良5順位'] = pd.to_numeric(df['良5順位'], errors='coerce')
         df['実績評価'] = df['良5順位'].rank(method='min').apply(lambda x: max(0, 30 - (x * 5)))
     else:
         df['実績評価'] = 0
 
-    # 7. 最終予想スコアと着順
-    df['予想スコア'] = df['タイム評価'] + df['実績評価'] + df['偏差評価'] + df['ST評価']
-    # スコアが高い順に予想着順をつける
+    # 7. 最終集計
+    df['予想スコア'] = (df['タイム評価'] + df['実績評価'] + df['偏差評価'] + 
+                        df['ST評価'] + df['上昇評価'] + df['追い上げスコア'] + df['逃げ評価'])
     df['予想着順'] = df['予想スコア'].rank(ascending=False, method='min')
 
     return df
@@ -106,7 +130,6 @@ def main():
             if '発走予定' not in df.columns or '車' not in df.columns:
                 continue
                 
-            # 既に予想着順まで計算済みならスキップ（必要に応じて調整）
             if '予想着順' in df.columns and not pd.isna(df['予想着順'].iloc[0]):
                 continue
 
@@ -159,13 +182,8 @@ def main():
                             trial_results[int(car_no)] = t_time
                 
                 if trial_results:
-                    # 試走タイム更新
                     df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
-                    
-                    # --- ここで予想ロジックを実行 ---
                     df = calculate_predictions(df)
-                    # ----------------------------
-                    
                     df.to_csv(file, index=False, encoding="utf-8-sig")
                     print("成功・予想完了")
                 else:
