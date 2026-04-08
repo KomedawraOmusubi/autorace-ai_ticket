@@ -215,33 +215,23 @@ def main():
 
                 print(f"取得中: {place} {race_no}R...", end=" ", flush=True)
                 
-                # ★試走タイムが更新されるまで最大5分間 (30秒おきに10回) 粘るループ
-                trial_results = {}
-                for attempt in range(10):
-                    driver.get(target_url)
-                    wait = WebDriverWait(driver, 10)
-                    table = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
-                    
-                    rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
-                    temp_results = {}
-                    for row in rows:
-                        cols = row.find_elements(By.TAG_NAME, "td")
-                        if len(cols) >= 4:
-                            car_no = cols[0].text.strip()
-                            t_time = cols[3].text.strip()
-                            if car_no.isdigit() and t_time not in [".", "-", "", "0.00"]:
-                                temp_results[int(car_no)] = t_time
-                    
-                    # 少なくとも6名以上のタイムが取れていれば「更新済み」とみなす
-                    if len(temp_results) >= 6:
-                        trial_results = temp_results
-                        break
-                    else:
-                        if attempt < 9:
-                            print(".", end="", flush=True)
-                            time.sleep(30)
+                # ★修正箇所: 粘らず1回だけ確認して、なければ即座に「失敗」扱いにする
+                driver.get(target_url)
+                wait = WebDriverWait(driver, 10)
+                table = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
                 
-                if trial_results:
+                rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
+                trial_results = {}
+                for row in rows:
+                    cols = row.find_elements(By.TAG_NAME, "td")
+                    if len(cols) >= 4:
+                        car_no = cols[0].text.strip()
+                        t_time = cols[3].text.strip()
+                        if car_no.isdigit() and t_time not in [".", "-", "", "0.00"]:
+                            trial_results[int(car_no)] = t_time
+                
+                # 6名以上のタイムが取れていれば処理、取れなければ即終了
+                if len(trial_results) >= 6:
                     df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
                     df = calculate_predictions(df)
                     df.to_csv(file, index=False, encoding="utf-8-sig")
@@ -250,7 +240,7 @@ def main():
                     # リッチなPrint出力を追加
                     print_betting_guide(df, place, race_no)
                 else:
-                    print("試走未更新（タイムアウト）")
+                    print("未更新のためスキップ（GAS側でリトライしてください）")
                 
                 time.sleep(1)
 
