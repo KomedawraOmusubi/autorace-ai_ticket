@@ -39,11 +39,34 @@ def get_safe_text(cols, idx):
         return val if val and val != "." else "-"
     return "-"
 
+def parse_race_detail(text):
+    """
+    '03/31 浜 2着 3.822 3.75 ST 0.14' のような形式を分割する
+    返り値: (着順, 競走T, 試走T, ST)
+    """
+    if not text or text == '-' or len(str(text)) < 5:
+        return "-", "-", "-", "-"
+    
+    # 着順の抽出 (数字のみ取り出し)
+    rank_match = re.search(r'(\d+)', text)
+    rank = rank_match.group(1) if rank_match else "-"
+    
+    # タイム形式(数字.数字)の数値をすべて抽出
+    times = re.findall(r'\d\.\d+', text)
+    
+    # 通常: [競走T, 試走T, ST] の順で並んでいると想定
+    race_t = times[0] if len(times) >= 1 else "-"
+    test_t = times[1] if len(times) >= 2 else "-"
+    st = times[-1] if "ST" in text and len(times) >= 3 else "-"
+    
+    return rank, race_t, test_t, st
+
 def get_rank_score(rank_text, max_score):
     """着順文字列からスコアを計算"""
     if pd.isna(rank_text) or rank_text == '-':
         return 0
-    match = re.search(r'(\d+)着', str(rank_text))
+    # parse_race_detailでパース済みの場合は数値、未パースの場合は文字列から抽出
+    match = re.search(r'(\d+)', str(rank_text))
     if not match:
         return 0
     rank = int(match.group(1))
@@ -53,7 +76,6 @@ def get_rank_score(rank_text, max_score):
 def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
     """各タブ（近10走など）のデータを取得してdata_mapに格納"""
     driver.get(target_url)
-    # 修正：サーバー負荷軽減のため1.0〜3.0秒のランダム待機
     time.sleep(random.uniform(1.0, 3.0))
     try:
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
@@ -61,7 +83,6 @@ def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
         for t_row in t_rows:
             t_cols = t_row.find_elements(By.TAG_NAME, "td")
             if len(t_cols) >= 2:
-                # リストの0番目（車番）を取得
                 t_no = t_cols[0].text.strip()
                 if t_no in data_map:
                     for key, idx in col_indices.items():
@@ -74,7 +95,6 @@ def main():
     if not os.path.exists("data"):
         os.makedirs("data")
     
-    # 既存データのクリア
     old_files = glob.glob("data/*.csv")
     for f in old_files:
         try: os.remove(f)
@@ -89,7 +109,6 @@ def main():
     try:
         for place in places:
             print(f"\n--- {place.upper()} 取得開始 ---")
-            # 開催確認
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1"
             driver.get(check_url)
             try:
@@ -104,33 +123,25 @@ def main():
                 
                 try:
                     driver.get(f"{base_url}/program")
-                    # 修正：ページ遷移後の待機
                     time.sleep(random.uniform(1.0, 3.0))
-                    
                     wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
                     
-                    # 発走時刻と締切の取得
                     raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
                     start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
                     voting_deadline = driver.find_element(By.ID, "race-result-current-race-telvote").text.strip()
 
-                    # 発走済みチェック
                     if ":" in start_time_raw:
                         race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
                         race_time = TOKYO_TZ.localize(race_time_obj)
-                        
                         if now_jst > race_time:
                             print(f"  => {race_no}R スキップ: 既に発走済み({start_time_raw})")
                             continue
-
-                        # GAS用トリガー時刻（15分前）
                         trigger_time = race_time - datetime.timedelta(minutes=15)
                         if trigger_time > now_jst:
                             target_times.append(trigger_time.strftime("%Y-%m-%dT%H:%M:00"))
 
                     print(f"   [{race_no}R] データ取得中...")
 
-                    # 基本データ(出走表)取得
                     base_data = {}
                     rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
                     for row in rows:
@@ -140,7 +151,6 @@ def main():
                             if no.isdigit():
                                 name_parts = cols[1].text.split('\n')
                                 name = name_parts[0].strip() if name_parts else "-"
-                                
                                 base_data[no] = {
                                     "車": no, "選手名": name,
                                     "投票締切": voting_deadline, "発走予定": start_time_raw,
@@ -149,19 +159,17 @@ def main():
                                 }
 
                     if base_data:
-                        # --- 各詳細タブからのデータ取得 ---
-                        
-                        # 1. 近10走 (1〜10走)
+                        # 1. 近10走取得
                         fetch_tab_data(driver, wait, f"{base_url}/recent10", base_data, 
                                        {"前1走":2, "前2走":3, "前3走":4, "前4走":5, "前5走":6, "前6走":7, "前7走":8, "前8走":9, "前9走":10, "前10走":11})
                         
-                        # 2. 走路別（良/湿/斑）
+                        # 2. 走路別
                         for mode in ["good5", "wet5", "han5"]:
                             fetch_tab_data(driver, wait, f"{base_url}/{mode}", base_data, {
                                 f"{mode}平順": 7, f"{mode}近況": 8, f"{mode}2連率": 9
                             })
 
-                        # 3. 90日/180日/365日データ
+                        # 3. 期間別データ
                         fetch_tab_data(driver, wait, f"{base_url}/recent90", base_data, 
                                        {"90平均ST":5, "90良10平競":10, "90良10平試":9})
                         fetch_tab_data(driver, wait, f"{base_url}/recent180", base_data, 
@@ -169,10 +177,22 @@ def main():
                         fetch_tab_data(driver, wait, f"{base_url}/recent365", base_data, 
                                        {"通算優勝":4, "通算2連":9})
 
-                        # --- 分析とスコアリング ---
+                        # --- データ整形と新カラム追加 ---
                         df = pd.DataFrame(base_data.values()).sort_values("車")
 
-                        # 数値変換
+                        # 前1走〜前3走のデータを分解して新しいカラムを作成
+                        for i, label in enumerate(["一", "二", "三"], 1):
+                            target_col = f"前{i}走"
+                            if target_col in df.columns:
+                                # パース実行
+                                res = df[target_col].apply(parse_race_detail)
+                                # 各要素を新カラムへ代入
+                                df[f'前{label}順'] = [x[0] for x in res]
+                                df[f'前{label}競走T'] = [x[1] for x in res]
+                                df[f'前{label}試走'] = [x[2] for x in res]
+                                df[f'前{label}ST'] = [x[3] for x in res]
+
+                        # 数値変換とスコアリング
                         for col in ['ハンデ', '偏差', '90平均ST', '90良10平競']:
                             if col in df.columns:
                                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -182,15 +202,14 @@ def main():
                         
                         scores, times = [], []
                         for _, row in df.iterrows():
-                            # 着順スコア（前1走・前2走）
-                            s = get_rank_score(row.get('前1走', '-'), 30) + get_rank_score(row.get('前2走', '-'), 20)
+                            # パースした着順（前一順、前二順）を使ってスコア計算
+                            s = get_rank_score(row.get('前一順', '-'), 30) + get_rank_score(row.get('前二順', '-'), 20)
                             
                             base_time = row.get('90良10平競', 0)
                             if base_time == 0:
                                 times.append(0.0); scores.append(0.0)
                                 continue
                             
-                            # 予想タイム計算
                             f_time = base_time + (row['ハンデ'] * HANDI_WEIGHT) + \
                                      ((row['偏差'] / 1000) * DEV_WEIGHT) + \
                                      ((row['90平均ST'] - race_avg_st) * ST_WEIGHT)
@@ -206,14 +225,12 @@ def main():
                         filename = f"data/race_data_{place}_{race_no}R.csv"
                         df.to_csv(filename, index=False, encoding="utf-8-sig")
                         print(f"  => {filename} 保存完了")
-                        # 修正：次のレース取得前にランダム待機
                         time.sleep(random.uniform(1.0, 3.0))
 
                 except Exception as e:
                     print(f"  => {race_no}R 処理エラー: {e}")
                     continue 
 
-        # GASへのトリガー送信
         if target_times:
             unique_times = sorted(list(set(target_times)))[:20]
             try:
