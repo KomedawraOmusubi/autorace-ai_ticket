@@ -41,33 +41,49 @@ def get_safe_text(cols, idx):
 
 def parse_race_detail(text):
     """
-    '04/07飯 6着12R 3.458 3.36 ST 0.21' のような形式を分割する
-    返り値: (着順, 競走T, 試走T, ST)
+    オートレース公式サイトの「近10走」等のセル内テキストを分解する
+    形式例: '04/07飯 6着12R 3.458 3.36 ST 0.21' 
     """
     if not text or text == '-' or len(str(text)) < 5:
         return "-", "-", "-", "-"
     
-    # 修正：日付の「04」などを拾わないよう、「着」の直前の数字を抽出
+    # 1. 着順の抽出
+    rank = "-"
     rank_match = re.search(r'(\d+)(?=着)', text)
     if rank_match:
-        rank = rank_match.group(1).zfill(2) # 2桁に揃える (例: "6" -> "06")
-    else:
-        # 数字+着で見つからない場合（丸数字など）、"着"の1文字前を確認
-        idx = text.find("着")
-        if idx > 0:
-            rank_candidate = text[idx-1]
-            rank = rank_candidate if rank_candidate.isdigit() else "-"
+        rank = rank_match.group(1).zfill(2)
+
+    # 2. テキストを空白で分割して解析 (欠損値に対応するため)
+    parts = text.split()
+    
+    race_t = "-"
+    test_t = "-"
+    st = "-"
+
+    # ST(スタートタイミング)の抽出
+    if "ST" in parts:
+        st_idx = parts.index("ST")
+        if st_idx + 1 < len(parts):
+            st = parts[st_idx + 1]
+
+    # タイム形式(数字.数字)の候補をリストアップ (ST以外)
+    # 日付(04/07)等を除外するため、「/」を含まないものに限定
+    time_candidates = [p for p in parts if "." in p and p != st and "/" not in p]
+
+    # --- ここが修正の肝：データ数による位置判定 ---
+    # 通常：[競走タイム, 試走タイム] の2つがある
+    if len(time_candidates) >= 2:
+        race_t = time_candidates[0]
+        test_t = time_candidates[1]
+    # 競走タイムが「-」などで欠損している場合、数値は1つ（試走タイム）しか残らない
+    elif len(time_candidates) == 1:
+        # 文字列全体に欠損を示す「-」がある場合は、残った1つは試走タイムと判断
+        if "-" in text:
+            race_t = "-"
+            test_t = time_candidates[0]
         else:
-            rank = "-"
-    
-    # タイム形式(数字.数字)の数値をすべて抽出
-    times = re.findall(r'\d\.\d+', text)
-    
-    # 通常: [競走T, 試走T, ST] の順で並んでいると想定
-    race_t = times[0] if len(times) >= 1 else "-"
-    test_t = times[1] if len(times) >= 2 else "-"
-    st = times[-1] if "ST" in text and len(times) >= 3 else "-"
-    
+            race_t = time_candidates[0]
+
     return rank, race_t, test_t, st
 
 def get_rank_score(rank_text, max_score):
@@ -192,9 +208,7 @@ def main():
                         for i, label in enumerate(["一", "二", "三"], 1):
                             target_col = f"前{i}走"
                             if target_col in df.columns:
-                                # パース実行
                                 res = df[target_col].apply(parse_race_detail)
-                                # 各要素を新カラムへ代入
                                 df[f'前{label}順'] = [x[0] for x in res]
                                 df[f'前{label}競走T'] = [x[1] for x in res]
                                 df[f'前{label}試走'] = [x[2] for x in res]
@@ -213,6 +227,7 @@ def main():
                             # パースした着順（前一順、前二順）を使ってスコア計算
                             s = get_rank_score(row.get('前一順', '-'), 30) + get_rank_score(row.get('前二順', '-'), 20)
                             
+                            # 90良10平競 が 0 (欠損) の場合はスコア計算をスキップ
                             base_time = row.get('90良10平競', 0)
                             if base_time == 0:
                                 times.append(0.0); scores.append(0.0)
