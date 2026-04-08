@@ -1,16 +1,19 @@
 name: 2-Trial-Watcher-Job
 
 on:
-  # スケジュール実行(cron)は完全に削除。
-  # GASから「発走15分前」に届く repository_dispatch の合図だけで動きます。
-  workflow_dispatch: # 手動実行（テスト用）
+  # 手動実行用（テスト時に便利です）
+  workflow_dispatch:
+
+  # GASからの「execute-bot」という合図を受けて起動
   repository_dispatch:
-    types: [execute-bot] # GASの triggerGitHubAction 関数からの合図
+    types:
+      - execute-bot
 
 jobs:
   check-and-fetch:
     runs-on: ubuntu-latest
-    # リポジトリのCSVファイルを更新（書き込み）するために必要
+    
+    # リポジトリへの書き込み権限を明示的に付与
     permissions:
       contents: write
 
@@ -18,7 +21,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # 最新のCSV状態を正しく取得するために履歴を含めて取得
+          # 履歴を含めて取得（push時の競合回避のため）
           fetch-depth: 0
 
       - name: Set up Python
@@ -28,7 +31,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # predict.py で使用するライブラリをインストール
           pip install pandas selenium webdriver-manager pytz
 
       - name: Run Trial Fetcher
@@ -41,13 +43,10 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 試走タイムが書き込まれたCSVファイルをステージング
+          # 変更がある場合のみコミットしてプッシュ
           git add data/*.csv
-          
-          # 変更（試走タイムの更新）がある場合のみコミットとプッシュを実行
           if ! git diff --cached --quiet; then
             git commit -m "Update trial times: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 他のジョブとの衝突を避けるため、最新を取り込んでからプッシュ
             git pull --rebase origin main
             git push origin main
           else
