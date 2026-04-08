@@ -67,7 +67,7 @@ def print_betting_guide(df, place, race_no):
     print("=" * 50 + "\n")
 
 def calculate_predictions(df):
-    cols_to_fix = ['前一競走T', '前一試走', '前二競走T', '前二試走', '前三競走T', '前三試走', 
+    cols_to_fix = ['前一競走T', '前二競走T', '前三競走T', '前一試走', '前二試走', '前三試走', 
                    '前一順', '前二順', '前三順', '前一ST', '前二ST', '前三ST', '試走T', 'ハンデ', '良5順位', '偏差']
     for col in cols_to_fix:
         if col in df.columns:
@@ -126,13 +126,22 @@ def calculate_predictions(df):
                         df['ST評価'] + df['上昇評価'] + df['追い上げスコア'] + df['逃げ評価'])
     df['予想着順'] = df['予想スコア'].rank(ascending=False, method='min')
 
-    # --- 数値の丸め処理（タイム第2位、着順第1位） ---
-    time_cols = ['平均競走タイム', '平均試走', '直前予想競走タイム', '100m単価', '試走T']
-    for c in time_cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors='coerce').round(2)
+    # --- 数値のフォーマット処理 ---
+    # 平均st (小数第2位)
+    df['平均st'] = df['平均st'].map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
+    
+    # 上昇度 (小数第3位)
+    df['上昇度'] = df['上昇度'].map(lambda x: f"{x:.3l}" if pd.notnull(x) else x).replace(r'l', 'f', regex=True) # 型調整
+    df['上昇度'] = pd.to_numeric(df['上昇度'], errors='coerce').map(lambda x: f"{x:.3f}" if pd.notnull(x) else x)
 
-    rank_cols = ['平均順位', '予想着順', 'タイム順位', '平均st']
+    # 平均競走タイム, 平均試走, 直前予想競走タイム (小数第2位、0表示)
+    target_2f_cols = ['平均競走タイム', '平均試走', '直前予想競走タイム']
+    for col in target_2f_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
+
+    # その他、ランキング系は小数第1位
+    rank_cols = ['平均順位', '予想着順', 'タイム順位']
     for c in rank_cols:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce').round(1)
@@ -212,12 +221,6 @@ def main():
                     df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
                     df = calculate_predictions(df)
                     
-                    # 最終保存前の念押し丸め
-                    if '予想着順' in df.columns:
-                        df['予想着順'] = pd.to_numeric(df['予想着順'], errors='coerce').round(1)
-                    if '直前予想競走タイム' in df.columns:
-                        df['直前予想競走タイム'] = pd.to_numeric(df['直前予想競走タイム'], errors='coerce').round(2)
-
                     df.to_csv(file, index=False, encoding="utf-8-sig")
                     print("成功・予想完了")
                     print_betting_guide(df, place, race_no)
