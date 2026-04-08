@@ -41,15 +41,24 @@ def get_safe_text(cols, idx):
 
 def parse_race_detail(text):
     """
-    '03/31 浜 2着 3.822 3.75 ST 0.14' のような形式を分割する
+    '04/07飯 6着12R 3.458 3.36 ST 0.21' のような形式を分割する
     返り値: (着順, 競走T, 試走T, ST)
     """
     if not text or text == '-' or len(str(text)) < 5:
         return "-", "-", "-", "-"
     
-    # 着順の抽出 (数字のみ取り出し)
-    rank_match = re.search(r'(\d+)', text)
-    rank = rank_match.group(1) if rank_match else "-"
+    # 修正：日付の「04」などを拾わないよう、「着」の直前の数字を抽出
+    rank_match = re.search(r'(\d+)(?=着)', text)
+    if rank_match:
+        rank = rank_match.group(1).zfill(2) # 2桁に揃える (例: "6" -> "06")
+    else:
+        # 数字+着で見つからない場合（丸数字など）、"着"の1文字前を確認
+        idx = text.find("着")
+        if idx > 0:
+            rank_candidate = text[idx-1]
+            rank = rank_candidate if rank_candidate.isdigit() else "-"
+        else:
+            rank = "-"
     
     # タイム形式(数字.数字)の数値をすべて抽出
     times = re.findall(r'\d\.\d+', text)
@@ -65,7 +74,6 @@ def get_rank_score(rank_text, max_score):
     """着順文字列からスコアを計算"""
     if pd.isna(rank_text) or rank_text == '-':
         return 0
-    # parse_race_detailでパース済みの場合は数値、未パースの場合は文字列から抽出
     match = re.search(r'(\d+)', str(rank_text))
     if not match:
         return 0
