@@ -6,6 +6,7 @@ import pytz
 import glob
 import numpy as np
 import re
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -16,6 +17,22 @@ from selenium.webdriver.support import expected_conditions as EC
 
 # タイムゾーン設定
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
+
+# Discord Webhook設定 (GitHub Secretsから取得)
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+
+def send_discord_message(content):
+    """Discordにメッセージを送信する"""
+    if not DISCORD_WEBHOOK_URL:
+        print("Warning: DISCORD_WEBHOOK_URL is not set.")
+        return
+    
+    data = {"content": content}
+    try:
+        response = requests.post(DISCORD_WEBHOOK_URL, json=data)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Discord送信エラー: {e}")
 
 def get_driver():
     options = Options()
@@ -39,9 +56,10 @@ def print_betting_guide(df, place, race_no):
     ana_candidates = sdf.iloc[3:][(sdf['上昇評価'] >= 10) | (sdf['逃げ評価'] >= 15)]
     ana = int(ana_candidates.iloc[0]['車']) if not ana_candidates.empty else None
 
-    print("\n" + "="*50)
-    print(f" 【{place} {race_no}R】 直前予想・推奨買い目 ")
-    print("="*50)
+    # Discord用メッセージ構築
+    msg = []
+    msg.append(f"**【{place} {race_no}R】 直前予想・推奨買い目**")
+    msg.append("```")
     
     marks = ["◎", "○", "▲", "△", "注"]
     for i in range(min(5, len(sdf))):
@@ -52,19 +70,26 @@ def print_betting_guide(df, place, race_no):
         if sdf.iloc[i]['上昇評価'] >= 10: tags.append("上昇")
         if sdf.iloc[i]['ST評価'] > 0: tags.append("ST速")
         tag_str = " ".join([f"[{t}]" for t in tags])
-        print(f"{marks[i]} {car}号車 (Score: {score:5.1f}) {tag_str}")
+        msg.append(f"{marks[i]} {car}号車 (Score: {score:5.1f}) {tag_str}")
     
-    print("-" * 50)
-    print(f"■ 本命 (三連単): {top1}-{top2}-{top3}, {top1}-{top3}-{top2}, {top2}-{top1}-{top3}")
-    print(f"■ 本命 (二連単): {top1}-{top2}, {top2}-{top1}")
-    print(f"■ 本命 (三連複): {top1}={top2}={top3}")
+    msg.append("-" * 30)
+    msg.append(f"■ 本命 (三連単): {top1}-{top2}-{top3}, {top1}-{top3}-{top2}, {top2}-{top1}-{top3}")
+    msg.append(f"■ 本命 (二連単): {top1}-{top2}, {top2}-{top1}")
+    msg.append(f"■ 本命 (三連複): {top1}={top2}={top3}")
     
     if ana:
-        print("-" * 50)
-        print(f"■ 穴   (三連単): {ana}-{top1}-{top2}, {top1}-{ana}-{top2}")
-        print(f"■ 穴   (二連単): {ana}-{top1}, {ana}-{top2}")
-        print(f"■ 穴   (三連複): {ana}={top1}={top2}")
-    print("=" * 50 + "\n")
+        msg.append("-" * 30)
+        msg.append(f"■ 穴   (三連単): {ana}-{top1}-{top2}, {top1}-{ana}-{top2}")
+        msg.append(f"■ 穴   (二連単): {ana}-{top1}, {ana}-{top2}")
+        msg.append(f"■ 穴   (三連複): {ana}={top1}={top2}")
+    msg.append("```")
+    
+    final_msg = "\n".join(msg)
+    
+    # コンソール出力
+    print("\n" + final_msg)
+    # Discord送信
+    send_discord_message(final_msg)
 
 def calculate_predictions(df):
     cols_to_fix = ['前一競走T', '前二競走T', '前三競走T', '前一試走', '前二試走', '前三試走', 
@@ -127,20 +152,14 @@ def calculate_predictions(df):
     df['予想着順'] = df['予想スコア'].rank(ascending=False, method='min')
 
     # --- 数値のフォーマット処理 ---
-    # 平均st (小数第2位)
-    df['平均st'] = df['平均st'].map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
-    
-    # 上昇度 (小数第3位)
-    df['上昇度'] = df['上昇度'].map(lambda x: f"{x:.3l}" if pd.notnull(x) else x).replace(r'l', 'f', regex=True) # 型調整
-    df['上昇度'] = pd.to_numeric(df['上昇度'], errors='coerce').map(lambda x: f"{x:.3f}" if pd.notnull(x) else x)
-
-    # 平均競走タイム, 平均試走, 直前予想競走タイム (小数第2位、0表示)
     target_2f_cols = ['平均競走タイム', '平均試走', '直前予想競走タイム']
     for col in target_2f_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
 
-    # その他、ランキング系は小数第1位
+    df['平均st'] = pd.to_numeric(df['平均st'], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
+    df['上昇度'] = pd.to_numeric(df['上昇度'], errors='coerce').map(lambda x: f"{x:.3f}" if pd.notnull(x) else x)
+
     rank_cols = ['平均順位', '予想着順', 'タイム順位']
     for c in rank_cols:
         if c in df.columns:
@@ -186,11 +205,6 @@ def main():
     try:
         for file, df in targets:
             try:
-                required_cols = ['前一競走T', '前二競走T', '前三競走T', '前一試走', '前二試走', '前三試走']
-                missing_cols = [c for c in required_cols if c not in df.columns]
-                if missing_cols:
-                    continue
-
                 file_name_only = os.path.basename(file).replace(".csv", "")
                 parts = file_name_only.split("_")
                 
