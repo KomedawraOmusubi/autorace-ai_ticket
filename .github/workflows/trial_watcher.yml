@@ -1,7 +1,7 @@
 name: 2-Trial-Watcher-Job
 
 on:
-  # 手動実行用（テスト時に便利です）
+  # 手動実行用
   workflow_dispatch:
 
   # GASからの「execute-bot」という合図を受けて起動
@@ -31,12 +31,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas selenium webdriver-manager pytz
+          # requests, numpy を追加して predict.py の動作を確実にします
+          pip install pandas selenium webdriver-manager pytz requests numpy
 
       - name: Run Trial Fetcher
         run: python predict.py
         env:
           TZ: 'Asia/Tokyo'
+          # GitHubのSettings > Secretsで設定した名前と一致させる
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
 
       - name: Commit and Push Updated CSVs
         run: |
@@ -46,7 +49,7 @@ jobs:
           # 変更がある場合のみコミットしてプッシュ
           git add data/*.csv
           if ! git diff --cached --quiet; then
-            git commit -m "Update trial times: $(date +'%Y-%m-%d %H:%M:%S')"
+            git commit -m "Update trial times and predictions: $(date +'%Y-%m-%d %H:%M:%S')"
             git pull --rebase origin main
             git push origin main
           else
