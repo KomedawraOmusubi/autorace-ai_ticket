@@ -36,18 +36,21 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. リモートの最新状態を強制取得してリセット
+          # 1. リモートの状態に強制リセット
           git fetch origin auto_ticket_v2
           git reset --hard origin/auto_ticket_v2
           
-          # 2. Pythonが消した古いファイルの「削除」も記録するために -A を使用
-          git add -A data/*.csv || true
+          # 2. 【ここが重要】一度リポジトリ上のCSV登録をすべて解除する（物理削除ではなく追跡解除）
+          git rm -r --cached data/*.csv || true
           
-          # 3. 変更があればコミット
+          # 3. Pythonが生成した「今日の最新CSV」だけをすべて追加し直す
+          git add data/*.csv || true
+          
+          # 4. 変更（古いファイルの削除と新しいファイルの追加）をコミット
           if ! git diff --cached --quiet; then
-            git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 4. 強制プッシュでGitHub上のファイルを今日のデータのみに書き換える
+            git commit -m "Cleanup old data and Update: $(date +'%Y-%m-%d %H:%M:%S')"
+            # 5. 強制プッシュでGitHub上を今の状態に完全に置き換える
             git push -f origin auto_ticket_v2
           else
-            echo "No changes in CSV files. Skipping commit."
+            echo "No changes."
           fi
