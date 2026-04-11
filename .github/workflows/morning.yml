@@ -4,7 +4,7 @@ on:
   # 定期実行(cron)は削除。GASからの通知と手動実行のみに制限
   workflow_dispatch: # 手動実行ボタン（テスト用）
   repository_dispatch:
-    types: [check-schedule] # GASの「深夜1時・昼12時・夕方15時」の合図を受けて起動
+    types: [check-schedule] # GASからの合図を受けて起動
 
 jobs:
   build:
@@ -40,15 +40,17 @@ jobs:
           git config --local user.name "GitHub Action"
           
           # 1. 変更（新規・修正・削除）をステージング
-          # ファイルが存在しない場合のエラーを防ぐため、ディレクトリ指定か-Aを使用
-          git add data/ || true
+          # dataフォルダ以下のCSVを対象にする
+          git add data/*.csv || true
           
           # 2. 変更（追加・削除・更新）がある場合のみコミット
           if ! git diff --cached --quiet; then
             git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 3. コンフリクト防止のため、一度プルしてからプッシュ
-            git pull --rebase origin main
-            git push origin main
+            
+            # 3. ブランチ名を固定(main)せず、現在のブランチ(HEAD)へ統合・送信
+            # これにより、auto_ticket_v2 ブランチへ正しく反映されます
+            git pull --rebase origin HEAD
+            git push origin HEAD
           else
             echo "No changes in CSV files. Skipping commit."
           fi
