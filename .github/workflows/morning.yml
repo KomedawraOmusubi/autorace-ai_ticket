@@ -1,15 +1,13 @@
 name: 1-Morning-Data-Job
 
 on:
-  # 定期実行(cron)は削除。GASからの通知と手動実行のみに制限
-  workflow_dispatch: # 手動実行ボタン（テスト用）
+  workflow_dispatch: 
   repository_dispatch:
-    types: [check-schedule] # GASからの合図を受けて起動
+    types: [check-schedule]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # リポジトリへの書き込み権限を明示的に許可
     permissions:
       contents: write
 
@@ -17,7 +15,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # 最新の変更を確実に取得
           fetch-depth: 0
 
       - name: Set up Python
@@ -39,17 +36,16 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. 変更（新規・修正・削除）をステージング
-          # dataフォルダ以下のCSVを対象にする
+          # 1. まず現在のリモートの変更を取り込んでおく（コンフリクト回避）
+          git pull origin HEAD --rebase
+          
+          # 2. 変更をステージング
           git add data/*.csv || true
           
-          # 2. 変更（追加・削除・更新）がある場合のみコミット
+          # 3. 変更がある場合のみ処理
           if ! git diff --cached --quiet; then
             git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
-            
-            # 3. ブランチ名を固定(main)せず、現在のブランチ(HEAD)へ統合・送信
-            # これにより、auto_ticket_v2 ブランチへ正しく反映されます
-            git pull --rebase origin HEAD
+            # 4. コミット直後にプッシュ（すでにプル済みなので安全）
             git push origin HEAD
           else
             echo "No changes in CSV files. Skipping commit."
