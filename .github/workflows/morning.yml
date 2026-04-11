@@ -1,4 +1,4 @@
-Name: 1-Morning-Data-Job
+name: 1-Morning-Data-Job
 
 on:
   workflow_dispatch: 
@@ -36,18 +36,17 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. リモートの最新状態に合わせる
+          # 1. リモートの最新状態を強制取得してリセット
           git fetch origin auto_ticket_v2
           git reset --hard origin/auto_ticket_v2
           
-          # 2. 【重要】dataフォルダ内の変更（削除を含むすべて）を反映させる
-          # -A オプションを使うことで、Pythonが消した古いファイルの「削除」も記録されます
+          # 2. Pythonが消した古いファイルの「削除」も記録するために -A を使用
           git add -A data/*.csv || true
           
           # 3. 変更があればコミット
           if ! git diff --cached --quiet; then
             git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 4. 強制プッシュでリポジトリを最新のCSVの状態に上書きする
+            # 4. 強制プッシュでGitHub上のファイルを今日のデータのみに書き換える
             git push -f origin auto_ticket_v2
           else
             echo "No changes in CSV files. Skipping commit."
