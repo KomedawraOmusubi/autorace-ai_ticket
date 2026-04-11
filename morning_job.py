@@ -17,7 +17,6 @@ from selenium.webdriver.support import expected_conditions as EC
 
 # タイムゾーン設定
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
-GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyeHqZcoqijEYlaXoNVJs-XevCvP4WaQSQLsMA-_-QUuhyEQY6wJgJWzUroJaEjibEo/exec"
 
 def get_driver():
     options = Options()
@@ -48,7 +47,6 @@ def get_rank_score(race_text, max_score):
 def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
     try:
         driver.get(target_url)
-        # 負荷軽減と安定化のため待機
         time.sleep(random.uniform(2.0, 3.5))
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
         t_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
@@ -63,6 +61,7 @@ def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
         print(f"      タブ取得エラー ({target_url.split('/')[-1]}): {e}")
 
 def main():
+    # 実行前にローカルの古いCSVを全削除
     if not os.path.exists("data"): os.makedirs("data")
     for f in glob.glob("data/*.csv"):
         try: os.remove(f)
@@ -72,18 +71,14 @@ def main():
     today_str = now_jst.strftime("%Y-%m-%d")
     places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
     driver = get_driver()
-    # タイムアウトを15秒に延長
     wait = WebDriverWait(driver, 15)
 
     try:
         for place in places:
             print(f"\n--- {place.upper()} 取得開始 ---")
-            # 開催有無の確認と最大レース数の判定
             driver.get(f"https://autorace.jp/race_info/Program/{place}/{today_str}_1")
             try:
                 wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
-                
-                # レース番号ナビから当日の最大レース数を取得
                 nav_elements = driver.find_elements(By.CSS_SELECTOR, ".race_number_nav li a")
                 race_nums = [el.text for el in nav_elements if el.text.isdigit()]
                 max_race = int(race_nums[-1]) if race_nums else 12
@@ -120,24 +115,18 @@ def main():
                                 }
 
                     if base_data:
-                        # タブデータの順次取得
+                        # タブデータの取得（取得項目を拡張）
                         fetch_tab_data(driver, wait, f"{base_url}/recent10", base_data, 
                                        {"前1走":2, "前2走":3, "前3走":4, "前4走":5, "前5走":6, "前6走":7, "前7走":8, "前8走":9, "前9走":10, "前10走":11})
                         
-                        fetch_tab_data(driver, wait, f"{base_url}/good5", base_data, 
-                                       {"良5前1":2, "良5前2":3, "良5前3":4, "良5前4":5, "良5前5":6})
-
-                        fetch_tab_data(driver, wait, f"{base_url}/wet5", base_data, 
-                                       {"湿5前1":2, "湿5前2":3, "湿5前3":4, "湿5前4":5, "湿5前5":6})
-
-                        fetch_tab_data(driver, wait, f"{base_url}/han5", base_data, 
-                                       {"斑5前1":2, "斑5前2":3, "斑5前3":4, "斑5前4":5, "斑5前5":6})
-
-                        fetch_tab_data(driver, wait, f"{base_url}/recent90", base_data, {"90平均ST":5, "90良10平競":10})
+                        fetch_tab_data(driver, wait, f"{base_url}/recent90", base_data, {
+                            "90平均ST": 5, "90良10平競": 10, "90良10平試": 11,
+                            "180良2連": 12, "180湿2連": 13, "通算優勝": 14, "通算2連": 15
+                        })
                         
                         df = pd.DataFrame(base_data.values()).sort_values("車")
 
-                        # 数値計算
+                        # スコアリング（90良10平競をベースに使用）
                         for col in ['ハンデ', '偏差', '90平均ST', '90良10平競']:
                             if col in df.columns:
                                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -171,7 +160,6 @@ def main():
                 except Exception as e:
                     print(f"  => {race_no}R エラー回避: {e}")
                     continue
-
     finally:
         driver.quit()
         print("\n全ての処理が終了しました。")
