@@ -36,21 +36,21 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. リモートの状態に強制リセット
+          # 1. リモートの状態を強制的に同期
           git fetch origin auto_ticket_v2
           git reset --hard origin/auto_ticket_v2
           
-          # 2. 【ここが重要】一度リポジトリ上のCSV登録をすべて解除する（物理削除ではなく追跡解除）
-          git rm -r --cached data/*.csv || true
+          # 2. リポジトリ上のCSV登録を一度すべて強制削除（GitHub上のゴミを消すため）
+          git rm -rf data/*.csv || true
           
-          # 3. Pythonが生成した「今日の最新CSV」だけをすべて追加し直す
+          # 3. Pythonが生成した「今の最新CSV」だけを登録
           git add data/*.csv || true
           
-          # 4. 変更（古いファイルの削除と新しいファイルの追加）をコミット
+          # 4. 変更を確定
           if ! git diff --cached --quiet; then
-            git commit -m "Cleanup old data and Update: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 5. 強制プッシュでGitHub上を今の状態に完全に置き換える
+            git commit -m "Full refresh: Cleanup old files and Update data"
+            # 5. 強制プッシュでGitHub上を完全に「今のCSVだけ」にする
             git push -f origin auto_ticket_v2
           else
-            echo "No changes."
+            echo "No changes detected."
           fi
