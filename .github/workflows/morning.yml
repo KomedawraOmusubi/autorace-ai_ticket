@@ -36,16 +36,21 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. まず現在のリモートの変更を取り込んでおく（コンフリクト回避）
-          git pull origin HEAD --rebase
-          
-          # 2. 変更をステージング
+          # 1. 変更を一度ステージングして避難(stash)させる
+          # これをしないと pull 時にエラーになります
           git add data/*.csv || true
+          git stash
           
-          # 3. 変更がある場合のみ処理
+          # 2. ブランチ名を固定(main)せず HEAD を使ってプル
+          git pull --rebase origin HEAD
+          
+          # 3. 避難させたCSVを戻す
+          git stash pop || echo "No changes to pop"
+          
+          # 4. 改めてコミットとプッシュ
+          git add data/*.csv || true
           if ! git diff --cached --quiet; then
             git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 4. コミット直後にプッシュ（すでにプル済みなので安全）
             git push origin HEAD
           else
             echo "No changes in CSV files. Skipping commit."
