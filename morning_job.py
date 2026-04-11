@@ -46,9 +46,10 @@ def get_rank_score(race_text, max_score):
     return max(0, score)
 
 def fetch_tab_data(driver, wait, target_url, data_map, col_indices):
-    driver.get(target_url)
-    time.sleep(random.uniform(1.0, 2.0))
     try:
+        driver.get(target_url)
+        # 負荷軽減と安定化のため待機
+        time.sleep(random.uniform(2.0, 3.5))
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
         t_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
         for t_row in t_rows:
@@ -71,19 +72,27 @@ def main():
     today_str = now_jst.strftime("%Y-%m-%d")
     places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
     driver = get_driver()
-    wait = WebDriverWait(driver, 10)
+    # タイムアウトを15秒に延長
+    wait = WebDriverWait(driver, 15)
 
     try:
         for place in places:
             print(f"\n--- {place.upper()} 取得開始 ---")
+            # 開催有無の確認と最大レース数の判定
             driver.get(f"https://autorace.jp/race_info/Program/{place}/{today_str}_1")
             try:
                 wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
+                
+                # レース番号ナビから当日の最大レース数を取得
+                nav_elements = driver.find_elements(By.CSS_SELECTOR, ".race_number_nav li a")
+                race_nums = [el.text for el in nav_elements if el.text.isdigit()]
+                max_race = int(race_nums[-1]) if race_nums else 12
+                print(f"  => 本日の最大レース数: {max_race}R")
             except:
-                print(f"  => {place.upper()} スキップ")
+                print(f"  => {place.upper()} スキップ: 開催なし")
                 continue
 
-            for r in range(1, 13):
+            for r in range(1, max_race + 1):
                 race_no = str(r)
                 base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
                 
@@ -111,28 +120,24 @@ def main():
                                 }
 
                     if base_data:
-                        # --- 近10走 ---
+                        # タブデータの順次取得
                         fetch_tab_data(driver, wait, f"{base_url}/recent10", base_data, 
                                        {"前1走":2, "前2走":3, "前3走":4, "前4走":5, "前5走":6, "前6走":7, "前7走":8, "前8走":9, "前9走":10, "前10走":11})
                         
-                        # --- 良5走(good5) ---
                         fetch_tab_data(driver, wait, f"{base_url}/good5", base_data, 
                                        {"良5前1":2, "良5前2":3, "良5前3":4, "良5前4":5, "良5前5":6})
 
-                        # --- 湿5走(wet5) ---
                         fetch_tab_data(driver, wait, f"{base_url}/wet5", base_data, 
                                        {"湿5前1":2, "湿5前2":3, "湿5前3":4, "湿5前4":5, "湿5前5":6})
 
-                        # --- 斑5走(han5) ---
                         fetch_tab_data(driver, wait, f"{base_url}/han5", base_data, 
                                        {"斑5前1":2, "斑5前2":3, "斑5前3":4, "斑5前4":5, "斑5前5":6})
 
-                        # --- 期間別データ取得 ---
                         fetch_tab_data(driver, wait, f"{base_url}/recent90", base_data, {"90平均ST":5, "90良10平競":10})
                         
                         df = pd.DataFrame(base_data.values()).sort_values("車")
 
-                        # 数値変換とスコア計算
+                        # 数値計算
                         for col in ['ハンデ', '偏差', '90平均ST', '90良10平競']:
                             if col in df.columns:
                                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -142,9 +147,7 @@ def main():
                         
                         scores, times = [], []
                         for _, row in df.iterrows():
-                            # 近10走のデータを使ってスコア化
                             s = get_rank_score(row.get('前1走', '-'), 30) + get_rank_score(row.get('前2走', '-'), 20)
-                            
                             base_time = row.get('90良10平競', 0)
                             if base_time == 0:
                                 times.append(0.0); scores.append(0.0)
@@ -163,10 +166,11 @@ def main():
 
                         filename = f"data/race_data_{place}_{race_no}R.csv"
                         df.to_csv(filename, index=False, encoding="utf-8-sig")
-                        print(f"  => {filename} 保存完了")
+                        print(f"  => {race_no}R 保存完了")
 
                 except Exception as e:
-                    print(f"  => {race_no}R エラー: {e}")
+                    print(f"  => {race_no}R エラー回避: {e}")
+                    continue
 
     finally:
         driver.quit()
