@@ -36,21 +36,18 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. 変更を一度ステージングして避難(stash)させる
-          # これをしないと pull 時にエラーになります
+          # 1. リモートの最新状態を強制取得して、現在の環境をリセットする
+          # これで「コンフリクト(衝突)」を物理的に回避します
+          git fetch origin HEAD
+          git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
+          
+          # 2. Pythonが生成した新しいCSVだけをステージングに載せる
           git add data/*.csv || true
-          git stash
           
-          # 2. ブランチ名を固定(main)せず HEAD を使ってプル
-          git pull --rebase origin HEAD
-          
-          # 3. 避難させたCSVを戻す
-          git stash pop || echo "No changes to pop"
-          
-          # 4. 改めてコミットとプッシュ
-          git add data/*.csv || true
+          # 3. CSVに変化があればコミットしてプッシュ
           if ! git diff --cached --quiet; then
             git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
+            # HEAD(auto_ticket_v2)に対して直接プッシュ
             git push origin HEAD
           else
             echo "No changes in CSV files. Skipping commit."
