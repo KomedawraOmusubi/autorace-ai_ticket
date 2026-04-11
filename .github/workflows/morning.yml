@@ -1,13 +1,15 @@
 name: 1-Morning-Data-Job
 
 on:
-  workflow_dispatch: 
+  # 定期実行(cron)は削除。GASからの通知と手動実行のみに制限
+  workflow_dispatch: # 手動実行ボタン（テスト用）
   repository_dispatch:
-    types: [check-schedule]
+    types: [check-schedule] # GASの「深夜1時・昼12時・夕方15時」の合図を受けて起動
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # リポジトリへの書き込み権限を明示的に許可
     permissions:
       contents: write
 
@@ -15,6 +17,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          # 最新の変更を確実に取得
           fetch-depth: 0
 
       - name: Set up Python
@@ -36,18 +39,16 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. 既存の変更をすべて無視して、リモートの最新状態を強制的に取り込む
-          git fetch origin HEAD
-          git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
+          # 1. 変更（新規・修正・削除）をステージング
+          # ファイルが存在しない場合のエラーを防ぐため、ディレクトリ指定か-Aを使用
+          git add data/ || true
           
-          # 2. Pythonが生成した新しいCSVをステージングする
-          git add data/*.csv || true
-          
-          # 3. 変更があればコミットしてプッシュ
+          # 2. 変更（追加・削除・更新）がある場合のみコミット
           if ! git diff --cached --quiet; then
             git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
-            # 強制的に現在のブランチへプッシュ（コンフリクトを回避）
-            git push origin HEAD
+            # 3. コンフリクト防止のため、一度プルしてからプッシュ
+            git pull --rebase origin main
+            git push origin main
           else
             echo "No changes in CSV files. Skipping commit."
           fi
