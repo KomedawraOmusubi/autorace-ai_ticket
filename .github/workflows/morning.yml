@@ -36,16 +36,17 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. 変更をステージング（dataフォルダ内の削除・追加をすべて反映）
+          # 1. 既存の変更をすべて無視して、リモートの最新状態を強制的に取り込む
+          git fetch origin HEAD
+          git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
+          
+          # 2. Pythonが生成した新しいCSVをステージングする
           git add data/*.csv || true
           
-          # 2. 変更がある場合のみコミットとプッシュ
+          # 3. 変更があればコミットしてプッシュ
           if ! git diff --cached --quiet; then
             git commit -m "Auto-update race data: $(date +'%Y-%m-%d %H:%M:%S')"
-            
-            # 3. 安全にプッシュするための修正
-            # mainに固定せず、現在の作業ブランチ(HEAD)に対して処理
-            git pull --rebase origin HEAD
+            # 強制的に現在のブランチへプッシュ（コンフリクトを回避）
             git push origin HEAD
           else
             echo "No changes in CSV files. Skipping commit."
