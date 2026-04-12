@@ -5,6 +5,7 @@ import pandas as pd
 import pytz
 import glob
 import re
+import random
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -43,10 +44,23 @@ def get_rank_score(race_text, max_score):
 def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
     try:
         driver.get(target_url)
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
-        time.sleep(1.0)
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr")))
+        time.sleep(random.uniform(1.1, 1.5))  # ★ ランダム待機＆短縮
 
-        t_rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+        tables = driver.find_elements(By.CSS_SELECTOR, "table")
+        target_table = None
+
+        for table in tables:
+            if table.is_displayed():
+                target_table = table
+                break
+
+        if target_table is None:
+            print("      テーブルが見つからない")
+            return
+
+        t_rows = target_table.find_elements(By.CSS_SELECTOR, "tbody tr")
+
         for t_row in t_rows:
             t_cols = t_row.find_elements(By.TAG_NAME, "td")
             if len(t_cols) >= 2:
@@ -54,6 +68,7 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
                 if t_no in data_map:
                     for key, idx in col_indices.items():
                         data_map[t_no][key] = get_safe_text(t_cols, idx)
+
     except Exception as e:
         print("      取得エラー: " + str(e))
 
@@ -76,15 +91,14 @@ def main():
         for place in places:
             print("\n--- " + place.upper() + " 取得開始 ---")
 
-            check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
-            driver.get(check_url)
-
+            # ★ 軽量化：最初のページからレース数推定
+            driver.get(f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program")
             wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-            time.sleep(3)
+            time.sleep(random.uniform(1.1, 1.5))
 
-            links = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, "a")))
-
+            links = driver.find_elements(By.TAG_NAME, "a")
             race_nums = []
+
             for l in links:
                 href = l.get_attribute("href")
                 if href and f"/Program/{place}/{today_str}_" in href:
@@ -92,14 +106,16 @@ def main():
                     if match:
                         race_nums.append(int(match.group(1)))
 
-            if not race_nums:
-                print(f"  => {place} は開催されていないか、要素が見つかりません。")
-                continue
+            if race_nums:
+                max_race = max(race_nums)
+            else:
+                max_race = 12  # fallback
 
-            max_race = max(race_nums)
-            print(f"  => {place}: 全 {max_race} レースを検出しました。")
+            valid_races = list(range(1, max_race + 1))
 
-            for r in range(1, max_race + 1):
+            print(f"  => {place}: 全 {len(valid_races)} レースを検出しました。")
+
+            for r in valid_races:
                 try:
                     race_no_str = str(r).zfill(2)
                     race_id = today_id + "_" + place + "_" + race_no_str
@@ -107,7 +123,7 @@ def main():
 
                     driver.get(base_url + "/program")
                     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
-                    time.sleep(1)
+                    time.sleep(random.uniform(1.1, 1.5))  # ★ ランダム待機
 
                     info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
 
@@ -168,7 +184,6 @@ def main():
                             }
 
                     if base_data:
-                        # タブデータ取得
                         fetch_tab_data_robust(driver, wait, base_url + "/recent10", base_data, {
                             "全10_1":2, "全10_2":3, "全10_3":4, "全10_4":5, "全10_5":6,
                             "全10_6":7, "全10_7":8, "全10_8":9, "全10_9":10, "全10_10":11
