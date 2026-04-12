@@ -40,15 +40,14 @@ def get_rank_score(race_text, max_score):
     if not match:
         return 0
     rank = int(match.group(1))
-    # 1着=最大点、5着以降は0点に近づく計算
     score = max_score - (rank - 1) * (max_score / 4.0)
     return max(0, score)
 
 def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
-    """取得漏れを防ぐための強化版タブデータ取得"""
+    """取得漏れを防ぐための強化版タブデータ取得（近90/180/通算すべて対応）"""
     try:
         driver.get(target_url)
-        time.sleep(4.5) # レンダリング待ち
+        time.sleep(4.5) # 読み込み待ち
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
         
         t_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
@@ -63,7 +62,6 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
         print(f"      取得エラー ({target_url.split('/')[-1]}): {e}")
 
 def main():
-    # 実行前にローカルの古いCSVを全削除
     if not os.path.exists("data"): os.makedirs("data")
     for f in glob.glob("data/*.csv"):
         try: os.remove(f)
@@ -97,9 +95,12 @@ def main():
                     time.sleep(2.5)
                     wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
                     
+                    # 時刻情報のクリーンアップ
                     raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
-                    start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
-                    voting_deadline = driver.find_element(By.ID, "race-result-current-race-telvote").text.strip()
+                    start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).replace(" ", "").strip()
+                    
+                    raw_voting_text = driver.find_element(By.ID, "race-result-current-race-telvote").text
+                    voting_deadline = raw_voting_text.replace("投票締切", "").replace(" ", "").strip()
 
                     base_data = {}
                     rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
@@ -117,10 +118,10 @@ def main():
                                 }
 
                     if base_data:
-                        # 統計データの取得
+                        # 画像30-36枚目の全統計データを取得
                         fetch_tab_data_robust(driver, wait, f"{base_url}/recent10", base_data, 
                                        {"前1走":2, "前2走":3, "前3走":4, "前4走":5, "前5走":6,
-                                        "前6走":7, "前7走":8, "前8走":9, "前9走":10, "前10走":11})
+                                        "前6走":7, "前7走":8, "前9走":10, "前10走":11})
                         
                         fetch_tab_data_robust(driver, wait, f"{base_url}/recent90", base_data, {
                             "90平均ST": 5, "90良10平競": 10, "90良10平試": 11,
@@ -129,29 +130,24 @@ def main():
                         
                         df = pd.DataFrame(base_data.values()).sort_values("車")
 
-                        # 数値計算のためのクリーニング
+                        # スコアリングロジック（そのまま維持）
                         for col in ['ハンデ', '偏差', '90平均ST', '90良10平競']:
                             if col in df.columns:
                                 df[col] = pd.to_numeric(df[col].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
 
-                        # スコアリングと予想ロジック
                         HANDI_WEIGHT, ST_WEIGHT, DEV_WEIGHT = 0.0012, 0.1, 0.05
                         race_avg_st = df['90平均ST'].mean()
                         
                         scores, times = [], []
                         for _, row in df.iterrows():
-                            # 着順スコア（直近2走を重視）
                             s = get_rank_score(row.get('前1走', '-'), 30) + get_rank_score(row.get('前2走', '-'), 20)
-                            
                             base_time = row.get('90良10平競', 0)
                             if base_time == 0:
                                 times.append(0.0); scores.append(0.0)
                                 continue
-                            
                             f_time = base_time + (row['ハンデ'] * HANDI_WEIGHT) + \
                                      ((row['偏差'] / 1000) * DEV_WEIGHT) + \
                                      ((row['90平均ST'] - race_avg_st) * ST_WEIGHT)
-                            
                             times.append(round(f_time, 3))
                             scores.append(round(s + (3.600 - f_time) * 1000, 2))
 
