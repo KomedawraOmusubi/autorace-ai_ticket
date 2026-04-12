@@ -5,7 +5,7 @@ import pandas as pd
 import pytz
 import glob
 import re
-import random
+import random  # ★追加
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -43,10 +43,26 @@ def get_rank_score(race_text, max_score):
 
 def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
     try:
-        driver.get(target_url)
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr")))
-        time.sleep(random.uniform(1.1, 1.5))  # ★ ランダム待機＆短縮
+        # ★ 旧テーブルを保持（更新検知用）
+        old_table = None
+        try:
+            old_table = driver.find_element(By.CSS_SELECTOR, "table")
+        except:
+            pass
 
+        driver.get(target_url)
+
+        # ★ テーブル更新待ち（重要）
+        if old_table:
+            try:
+                wait.until(EC.staleness_of(old_table))
+            except:
+                pass
+
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody")))
+        time.sleep(random.uniform(1.5, 3.0))  # ★ランダム待機
+
+        # ★ 表示テーブルを1つだけ取得
         tables = driver.find_elements(By.CSS_SELECTOR, "table")
         target_table = None
 
@@ -91,29 +107,9 @@ def main():
         for place in places:
             print("\n--- " + place.upper() + " 取得開始 ---")
 
-            # ★ 軽量化：最初のページからレース数推定
-            driver.get(f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program")
-            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-            time.sleep(random.uniform(1.1, 1.5))
+            valid_races = list(range(1, 13))
 
-            links = driver.find_elements(By.TAG_NAME, "a")
-            race_nums = []
-
-            for l in links:
-                href = l.get_attribute("href")
-                if href and f"/Program/{place}/{today_str}_" in href:
-                    match = re.search(fr'{today_str}_(\d+)', href)
-                    if match:
-                        race_nums.append(int(match.group(1)))
-
-            if race_nums:
-                max_race = max(race_nums)
-            else:
-                max_race = 12  # fallback
-
-            valid_races = list(range(1, max_race + 1))
-
-            print(f"  => {place}: 全 {len(valid_races)} レースを検出しました。")
+            print(f"  => {place}: 最大12レース取得モード")
 
             for r in valid_races:
                 try:
@@ -122,8 +118,13 @@ def main():
                     base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
 
                     driver.get(base_url + "/program")
-                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
-                    time.sleep(random.uniform(1.1, 1.5))  # ★ ランダム待機
+                    
+                    try:
+                        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
+                    except:
+                        continue
+
+                    time.sleep(random.uniform(1.5, 3.0))
 
                     info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
 
