@@ -39,7 +39,6 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices, label
         print(f"      [取得中] {label}...", flush=True)
     try:
         driver.get(target_url)
-        # タブ切り替え後の待機
         time.sleep(2.5) 
         
         wait_short = WebDriverWait(driver, 10)
@@ -79,40 +78,44 @@ def main():
     today_str = now_jst.strftime("%Y-%m-%d")
     today_id = now_jst.strftime("%Y%m%d")
 
-    places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
     driver = get_driver()
-    wait = WebDriverWait(driver, 10)
+    wait = WebDriverWait(driver, 15)
 
     try:
-        for place in places:
-            print(f"\n--- {place.upper()} 開催チェック ---", flush=True)
+        print(f"--- 本日の開催場を確認中 ---", flush=True)
+        driver.get("https://autorace.jp/")
+        time.sleep(3.0)
+        
+        active_places = []
+        place_map = {
+            "川口": "kawaguchi",
+            "山陽": "sanyou",
+            "飯塚": "iizuka",
+            "浜松": "hamamatsu",
+            "伊勢崎": "isesaki"
+        }
+
+        try:
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "todayRaceSection")))
+            page_text = driver.find_element(By.CLASS_NAME, "todayRaceSection").text
             
-            check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
-            driver.get(check_url)
+            for jp_name, en_name in place_map.items():
+                if jp_name in page_text:
+                    active_places.append(en_name)
             
-            try:
-                # 強化された開催判定：中身(td)が出るまで最大15秒待つ
-                check_wait = WebDriverWait(driver, 15)
-                check_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr td")))
-                time.sleep(3.0) 
-                
-                rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
-                first_player = ""
-                if len(rows) > 0:
-                    cols = rows[0].find_elements(By.TAG_NAME, "td")
-                    if len(cols) >= 2:
-                        first_player = cols[1].text.strip()
+            active_places = list(dict.fromkeys(active_places))
+            print(f"  => 検知された開催場: {active_places}", flush=True)
+        except Exception as e:
+            print(f"  => 開催場の自動判定に失敗しました。全会場チェックに切り替えます。")
+            active_places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
 
-                if not first_player or first_player == "-" or first_player == "":
-                    print(f"  => {place.upper()} 番組データが空のため非開催と判断", flush=True)
-                    continue
-                
-                print(f"  => {place.upper()} 開催中を確認: {first_player}", flush=True)
+        if not active_places:
+            print("本日の開催場が見つかりませんでした。終了します。")
+            return
 
-            except TimeoutException:
-                print(f"  => {place.upper()} 読み込みタイムアウト（非開催と判断）", flush=True)
-                continue
-
+        for place in active_places:
+            print(f"\n--- {place.upper()} 取得開始 ---", flush=True)
+            
             for r in range(1, 13):
                 try:
                     race_no_str = str(r).zfill(2)
@@ -124,26 +127,62 @@ def main():
 
                     rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
                     if len(rows) < 5:
-                        print(f"  => {place.upper()} {r}R 番組なし。終了。", flush=True)
+                        print(f"  => {place.upper()} {r}R 以降の番組なし。終了。", flush=True)
                         break 
 
                     print(f"\n  [{race_id}] 処理開始...", flush=True)
-                    base_data = {str(i): {"車": str(i)} for i in range(1, 9)}
+                    base_data = {str(i): {} for i in range(1, 9)}
                     
                     # ヘッダー情報の取得
                     try:
                         info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
-                        h_data = {"日付": "-", "レース名": "-", "距離": "-", "天候": "-", "気温": "-", "湿度": "-", "走路温度": "-", "走路状況": "-"}
+                        # 順序を考慮して辞書を初期化
+                        h_data = {
+                            "日付": "-", "グレード": "-", "レース名": "-", "距離": "-", "天候": "-", 
+                            "気温": "-", "湿度": "-", "走路温度": "-", "走路状況": "-", 
+                            "投票締切": "-", "発走予定": "-"
+                        }
+                        
+                        # グレード情報の取得（h3タグなどから）
+                        try:
+                            grade_elem = driver.find_element(By.CSS_SELECTOR, ".race-infoWrap h3")
+                            h_data["グレード"] = grade_elem.text.strip().replace("\n", " ")
+                        except: pass
+
                         if len(info_tables) >= 2:
                             row1 = info_tables[0].find_elements(By.CSS_SELECTOR, "tbody tr td")
                             if len(row1) >= 4:
-                                h_data.update({"日付": row1[0].text.strip(), "レース名": row1[1].text.strip(), "距離": row1[2].text.strip(), "天候": row1[3].text.strip()})
+                                h_data["日付"] = row1[0].text.strip()
+                                h_data["レース名"] = row1[1].text.strip()
+                                h_data["距離"] = row1[2].text.strip()
+                                h_data["天候"] = row1[3].text.strip()
                             row2 = info_tables[1].find_elements(By.CSS_SELECTOR, "tbody tr td")
                             if len(row2) >= 4:
-                                h_data.update({"気温": row2[0].text.strip(), "湿度": row2[1].text.strip(), "走路温度": row2[2].text.strip(), "走路状況": row2[3].text.strip()})
+                                h_data["気温"] = row2[0].text.strip()
+                                h_data["湿度"] = row2[1].text.strip()
+                                h_data["走路温度"] = row2[2].text.strip()
+                                h_data["走路状況"] = row2[3].text.strip()
+
+                        # 投票締切・発走予定の取得
+                        try:
+                            # 締切と発走時刻が並んでいる要素を特定
+                            time_elements = driver.find_elements(By.CSS_SELECTOR, ".race-infoWrap .d-block.d-md-flex div")
+                            # もしくはより直接的な構成から抽出
+                            deadline = driver.find_element(By.XPATH, "//*[contains(text(), '投票締切')]/following-sibling::* | //*[contains(text(), '投票締切')]/parent::*/following-sibling::*").text
+                            plan = driver.find_element(By.XPATH, "//*[contains(text(), '発走予定')]/following-sibling::* | //*[contains(text(), '発走予定')]/parent::*/following-sibling::*").text
+                            h_data["投票締切"] = deadline.strip()
+                            h_data["発走予定"] = plan.strip()
+                        except:
+                            # 万が一上記で失敗した場合の予備
+                            try:
+                                h_data["投票締切"] = driver.find_element(By.CSS_SELECTOR, ".race-infoWrap .row .col-6:nth-child(1) div:last-child").text.strip()
+                                h_data["発走予定"] = driver.find_element(By.CSS_SELECTOR, ".race-infoWrap .row .col-6:nth-child(2) div:last-child").text.strip()
+                            except: pass
+                        
                         for car_no in base_data:
-                            base_data[car_no].update(h_data)
                             base_data[car_no]["場所"] = place
+                            base_data[car_no]["車"] = car_no
+                            base_data[car_no].update(h_data)
                     except Exception: pass
 
                     # 各タブ取得
@@ -156,7 +195,7 @@ def main():
 
                     fetch_tab_data_robust(driver, wait, base_url + "/recent90", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "90日")
                     fetch_tab_data_robust(driver, wait, base_url + "/recent180", base_data, {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "180日")
-                    fetch_tab_data_robust(driver, wait, base_url + "/total", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11}, "年間")
+                    fetch_tab_data_robust(driver, wait, base_url + "/recent365", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11}, "年間")
 
                     # 保存
                     df = pd.DataFrame(base_data.values())
