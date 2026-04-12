@@ -195,7 +195,7 @@ def main():
 
                     fetch_tab_data_robust(driver, wait, base_url + "/recent90", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "90日")
                     fetch_tab_data_robust(driver, wait, base_url + "/recent180", base_data, {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "180日")
-                    fetch_tab_data_robust(driver, wait, base_url + "/recent365", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11}, "年間")
+                    fetch_tab_data_robust(driver, wait, base_url + "/recent365", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10}, "年間")
 
                     # 保存
                     df = pd.DataFrame(base_data.values())
