@@ -13,6 +13,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
@@ -39,8 +40,8 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices, retri
         try:
             driver.get(target_url)
             # ページ内のメインテーブル（出走表など）が出るまで待機
-            wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr")) >= 6)
-            time.sleep(random.uniform(2.5, 4.5))
+            wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr")) >= 5)
+            time.sleep(random.uniform(1.5, 2.5))
 
             tables = driver.find_elements(By.CSS_SELECTOR, "table")
             target_table = None
@@ -48,7 +49,7 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices, retri
             for table in tables:
                 if table.is_displayed():
                     rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
-                    if len(rows) >= 6:
+                    if len(rows) >= 5:
                         target_table = table
                         break
 
@@ -65,8 +66,9 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices, retri
                             data_map[t_no][key] = get_safe_text(t_cols, idx)
             return
         except Exception as e:
-            print(f"      リトライ {attempt+1}/{retries} 失敗: {e}")
-            time.sleep(2)
+            if attempt == retries - 1:
+                print(f"      リトライ {attempt+1}/{retries} 失敗: {e}")
+            time.sleep(1)
 
 def main():
     if not os.path.exists("data"): os.makedirs("data")
@@ -80,11 +82,21 @@ def main():
 
     places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
     driver = get_driver()
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 10)
 
     try:
         for place in places:
             print(f"\n--- {place.upper()} 取得開始 ---")
+            
+            # その会場の1Rが存在するかチェック
+            check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
+            driver.get(check_url)
+            try:
+                WebDriverWait(driver, 8).until(EC.presence_of_element_located((By.CLASS_NAME, "race-infoTable")))
+            except TimeoutException:
+                print(f"  => {place.upper()} は本日開催がないか、番組が公開されていないためスキップします。")
+                continue
+
             for r in range(1, 13):
                 try:
                     race_no_str = str(r).zfill(2)
@@ -92,16 +104,20 @@ def main():
                     base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
 
                     driver.get(base_url + "/program")
+                    
+                    # 指定したレース(r)が存在するか判定。なければその会場のループを抜ける。
                     try:
-                        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "race-infoTable")))
-                    except:
-                        continue
-                    time.sleep(random.uniform(2.0, 4.0))
+                        WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "race-infoTable")))
+                    except TimeoutException:
+                        print(f"  => {place.upper()} {r}R以降の番組が見つかりません。次の会場へ移動します。")
+                        break 
+
+                    time.sleep(random.uniform(1.5, 3.0))
 
                     # データの初期化
                     base_data = {str(i): {"車": str(i)} for i in range(1, 9)}
                     
-                    # --- 画像に基づいたヘッダー情報の取得ロジック ---
+                    # --- ヘッダー情報の取得 ---
                     try:
                         info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
                         h_data = {
@@ -110,7 +126,6 @@ def main():
                         }
                         
                         if len(info_tables) >= 2:
-                            # 1つ目のテーブル: 日付, レース, 距離, 天候
                             row1 = info_tables[0].find_elements(By.CSS_SELECTOR, "tbody tr td")
                             if len(row1) >= 4:
                                 h_data["日付"] = row1[0].text.strip()
@@ -118,7 +133,6 @@ def main():
                                 h_data["距離"] = row1[2].text.strip()
                                 h_data["天候"] = row1[3].text.strip()
                             
-                            # 2つ目のテーブル: 気温, 湿度, 走路温度, 走路状況
                             row2 = info_tables[1].find_elements(By.CSS_SELECTOR, "tbody tr td")
                             if len(row2) >= 4:
                                 h_data["気温"] = row2[0].text.strip()
@@ -126,7 +140,6 @@ def main():
                                 h_data["走路温度"] = row2[2].text.strip()
                                 h_data["走路状況"] = row2[3].text.strip()
 
-                        # 取得した共通データを各車に反映
                         for car_no in base_data:
                             base_data[car_no].update(h_data)
                             base_data[car_no]["場所"] = place
@@ -134,35 +147,28 @@ def main():
                         print(f"      ヘッダー解析エラー: {ex}")
 
                     # --- 各タブのデータ取得 ---
-                    # 出走表
                     fetch_tab_data_robust(driver, wait, base_url + "/program", base_data, {
                         "選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5
                     })
                     
-                    # 近10走
                     fetch_tab_data_robust(driver, wait, base_url + "/recent10", base_data, {
-                        "近10_1":2, "近10_2":3, "近10_3":4, "近10_4":5, "近10_5":6,
-                        "近10_6":7, "近10_7":8, "近10_8":9, "近10_9":10, "近10_10":11
+                        f"近10_{i}": i+1 for i in range(1, 11)
                     })
 
-                    # 良5、湿5、斑5
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
                     for b_slug, b_name in [("good5","良"), ("wet5","湿"), ("han5","斑")]:
                         fetch_tab_data_robust(driver, wait, base_url + "/" + b_slug, base_data, {f"{b_name}5_{k}":v for k,v in f_map.items()})
 
-                    # 90日
                     fetch_tab_data_robust(driver, wait, base_url + "/recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,
                         "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11
                     })
 
-                    # 180日
                     fetch_tab_data_robust(driver, wait, base_url + "/recent180", base_data, {
                         "180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4,
                         "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7
                     })
 
-                    # 年間
                     fetch_tab_data_robust(driver, wait, base_url + "/total", base_data, {
                         "今年_優出":2, "今年_優勝":3, "通算_優勝":5,
                         "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11
@@ -172,6 +178,8 @@ def main():
                     df = pd.DataFrame(base_data.values())
                     df['車'] = pd.to_numeric(df['車'], errors='coerce')
                     df = df.sort_values("車")
+                    # 選手名が取得できていない（欠番等）行は除外
+                    df = df[df['選手名'].notna() & (df['選手名'] != "-")]
                     df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
                     print(f"  => {race_id} 保存完了")
 
