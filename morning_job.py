@@ -44,9 +44,9 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
     try:
         time.sleep(1.5)
         driver.get(target_url)
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".liveTable, table")))
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
         time.sleep(1.0) 
-        t_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr, table tbody tr")
+        t_rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
         for t_row in t_rows:
             t_cols = t_row.find_elements(By.TAG_NAME, "td")
             if len(t_cols) >= 2:
@@ -54,8 +54,8 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
                 if t_no in data_map:
                     for key, idx in col_indices.items():
                         data_map[t_no][key] = get_safe_text(t_cols, idx)
-    except Exception as e:
-        print(f"      取得エラー ({target_url.split('/')[-1]}): {e}")
+    except:
+        pass
 
 def main():
     if not os.path.exists("data"): os.makedirs("data")
@@ -75,57 +75,99 @@ def main():
     try:
         for place in places:
             time.sleep(2.0)
-            print(f"\n--- {place.upper()} 取得開始 ---")
-            check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
+            print("\n--- " + place.upper() + " 取得開始 ---")
+            check_url = "https://autorace.jp/race_info/Program/" + place + "/" + today_str + "_1/program"
             driver.get(check_url)
-            
-            # --- デバッグログ出力（安全な形式に修正） ---
             time.sleep(5.0) 
-            print("DEBUG: Current URL: " + str(driver.current_url))
-            print("DEBUG: Page Title: " + str(driver.title))
-            # f-stringを使わずに連結することでバックスラッシュ問題を回避
-            raw_html = driver.page_source[:300].replace("\n", " ")
-            print("DEBUG: Page Source (Top 300): " + raw_html)
-            driver.save_screenshot(f"debug_{place}.png")
-            # ---------------------------------------
 
-            try:
-                # 開催確認：リンクの有無をチェック
-                race_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='Program/" + place + "/" + today_str + "']")
-                
-                if not race_links: 
-                    print(f"  => {place} は開催されていないか、要素が見つかりません。")
-                    continue
-                
-                race_nums = []
-                for l in race_links:
-                    href = l.get_attribute("href")
+            # --- 修正箇所：全リンクから今日のレース番号を抽出 ---
+            all_links = driver.find_elements(By.TAG_NAME, "a")
+            race_nums = []
+            pattern = "/Program/" + place + "/" + today_str + "_"
+            for link in all_links:
+                href = str(link.get_attribute("href"))
+                if pattern in href:
                     match = re.search(r'_(\d+)(/|$)', href)
                     if match:
                         race_nums.append(int(match.group(1)))
+            
+            if not race_nums:
+                print("  => " + place + " は開催データが見つかりませんでした。")
+                continue
+
+            max_race = min(max(set(race_nums)), 12)
+            print("  => " + place + ": 全 " + str(max_race) + " レースを検出しました。")
+
+            for r in range(1, max_race + 1):
+                time.sleep(1.5)
+                race_no_str = str(r).zfill(2)
+                race_id = today_id + "_" + place + "_" + race_no_str
+                base_url = "https://autorace.jp/race_info/Program/" + place + "/" + today_str + "_" + str(r)
                 
-                if not race_nums:
-                    print(f"  => {place} のレース番号を取得できませんでした。")
-                    continue
-
-                max_race = min(max(race_nums), 12)
-                print(f"  => {place}: 全 {max_race} レースを検出しました。")
-
-                for r in range(1, max_race + 1):
-                    time.sleep(1.5)
-                    race_no_str = str(r).zfill(2)
-                    race_id = f"{today_id}_{place}_{race_no_str}"
-                    base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
+                try:
+                    driver.get(base_url + "/program")
+                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
+                    time.sleep(1.0)
                     
                     try:
-                        driver.get(f"{base_url}/program")
-                        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race-infoTable, table")))
-                        time.sleep(1.0)
-                        
-                        info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
-                        def get_info_val(t_idx, c_idx):
-                            try: return info_tables[t_idx].find_elements(By.TAG_NAME, "td")[c_idx].text.strip()
-                            except: return "-"
+                        race_title = driver.find_element(By.CLASS_NAME, "race_title").text.strip()
+                    except:
+                        race_title = "Unknown"
 
-                        try:
-                            race_title = driver.find
+                    base_data = {}
+                    target_rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+
+                    for row in target_rows:
+                        cols = row.find_elements(By.TAG_NAME, "td")
+                        if len(cols) >= 6:
+                            no = cols[0].text.strip()
+                            if not no.isdigit(): continue
+                            base_data[no] = {
+                                "レースID": race_id, "日付": today_str, "場所": place, "レース名": race_title,
+                                "車": no, "選手名": cols[1].text.split('\n')[0].strip(),
+                                "ハンデ": cols[2].text.strip(), "試走T": get_safe_text(cols, 3),
+                                "偏差": cols[4].text.strip(), "出走表_連率": cols[5].text.strip()
+                            }
+
+                    if base_data:
+                        f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平順":7, "近況":8, "2連":9}
+                        for b in [("good5","良"), ("wet5","湿"), ("han5","斑")]:
+                            fetch_tab_data_robust(driver, wait, base_url + "/" + b[0], base_data, {b[1] + "5_" + k:v for k,v in f_map.items()})
+
+                        fetch_tab_data_robust(driver, wait, base_url + "/recent90", base_data, {
+                            "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, 
+                            "90_1着":6, "90_2連率":7, "90_3連率":8, "90平均試":9, "90平均競":10
+                        })
+
+                        df = pd.DataFrame(base_data.values()).sort_values("車")
+                        for c in ['ハンデ', '偏差', '90平均ST', '90平均競']:
+                            if c in df.columns:
+                                df[c] = pd.to_numeric(df[c].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
+                        
+                        avg_st = df['90平均ST'].mean() if '90平均ST' in df.columns else 0.15
+                        times, scores = [], []
+                        for _, row in df.iterrows():
+                            s = get_rank_score(row.get('良5_前1', '-'), 30) + get_rank_score(row.get('良5_前2', '-'), 20)
+                            bt = row.get('90平均競', 0)
+                            if bt == 0: 
+                                times.append(0.0); scores.append(0.0)
+                            else:
+                                ft = bt + (row['ハンデ']*0.001) + (row['偏差']*0.1) + ((row['90平均ST']-avg_st)*0.1)
+                                times.append(round(ft, 3))
+                                scores.append(round(s + (3.600 - ft) * 1000, 2))
+                        
+                        df['予想タイム'], df['総合スコア'] = times, scores
+                        if not df['総合スコア'].empty:
+                            df['予想着順'] = df['総合スコア'].rank(ascending=False, method='min').fillna(9).astype(int)
+
+                        df.to_csv("data/race_data_" + place + "_" + race_no_str + "R.csv", index=False, encoding="utf-8-sig")
+                        print("  => " + race_id + " 保存完了")
+                except Exception as e: 
+                    print("  => " + str(r) + "R 取得失敗: " + str(e))
+
+    finally: 
+        driver.quit()
+        print("\n全ての処理が終了しました。")
+
+if __name__ == "__main__":
+    main()
