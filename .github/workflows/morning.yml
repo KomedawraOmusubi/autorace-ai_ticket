@@ -33,22 +33,21 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. 履歴のズレによるエラー を防ぐために強制リセット
+          # 1. 履歴の強制リセット
           git fetch origin auto_ticket_v2
           git reset --soft origin/auto_ticket_v2
           
-          # 2. ★超重要：GitHub上の古いCSVを一度すべて「削除対象」にする
-          # これにより2日前のファイル などが残るのを物理的に防ぎます
-          git rm -f data/*.csv || true
-          
-          # 3. Pythonが今回生成した「今日の最新CSV」だけを改めてGitに登録
+          # 2. Pythonが今作った新しいCSVを優先的にGitに追加
           git add data/*.csv || true
           
-          # 4. 変更があれば「完全に中身を入れ替える」コミットを作成
+          # 3. 今回作られなかった（＝古い）CSVだけを名簿から削除
+          # これにより、新旧の「混在」を防ぎつつ、今日のファイルを確実に残します
+          git add -u data/*.csv || true
+          
+          # 4. 変更があればコミットして強制プッシュ
           if ! git diff --cached --quiet; then
-            git commit -m "Full Refresh: Latest data only ($(date +'%Y-%m-%d %H:%M'))"
-            # 5. 強制プッシュ (-f) でGitHub上のデータを最新の1セットだけに塗り替える
+            git commit -m "Update data: $(date +'%Y-%m-%d %H:%M')"
             git push -f origin auto_ticket_v2
           else
-            echo "No changes detected."
+            echo "No CSV changes detected."
           fi
