@@ -74,27 +74,38 @@ def main():
     today_str, today_id = now_jst.strftime("%Y-%m-%d"), now_jst.strftime("%Y%m%d")
     places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
     driver = get_driver()
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 25) # 待機時間を少し延長
 
     try:
         for place in places:
             # 競馬場切り替え時のスリープ
             time.sleep(3.0)
             print(f"\n--- {place.upper()} 取得開始 ---")
-            # 開催確認用URL（1Rのprogramページを直接確認）
+            # 開催確認用URL
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(check_url)
             
             try:
-                # レース番号ナビゲーションが表示されるまで待機
-                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race_number_nav, .race_num_list")))
-                race_elements = driver.find_elements(By.CSS_SELECTOR, ".race_number_nav li a, .race_num_list li a")
-                race_nums = [el.text for el in race_elements if el.text.isdigit()]
+                # レース番号ナビゲーションが表示されるまで待機（複数のセレクタを試行）
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race_number_nav, .race_num_list, .race_num")))
+                
+                # レース番号のリンクから最大レース数を抽出する（テキスト取得より確実）
+                race_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='Program']")
+                race_nums = []
+                for link in race_links:
+                    href = link.get_attribute("href")
+                    match = re.search(r'_(\d+)(/|$)', href)
+                    if match:
+                        race_nums.append(int(match.group(1)))
                 
                 if not race_nums: 
-                    print(f"  => {place} は開催されていないか、番組がありません。")
+                    print(f"  => {place} は開催されていないか、番組が見つかりません。")
                     continue
-                max_race = int(max(race_nums, key=int))
+                
+                max_race = max(race_nums)
+                # 基本的にオートレースは12R構成
+                if max_race > 12: max_race = 12
+                
                 print(f"  => {place}: 全 {max_race} レースを検出しました。")
             except Exception:
                 print(f"  => {place} は開催されていないか、要素が見つかりません。")
@@ -110,8 +121,8 @@ def main():
                 try:
                     # 基本の出走表ページへ
                     driver.get(f"{base_url}/program")
-                    wait.until(EC.presence_of_element_located((By.CLASS_NAME, "race-infoTable")))
-                    time.sleep(1.5)
+                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race-infoTable, table")))
+                    time.sleep(2.0)
                     
                     info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
                     def get_info_val(table_idx, col_idx):
@@ -121,7 +132,8 @@ def main():
 
                     try:
                         race_title = driver.find_element(By.CLASS_NAME, "race_title").text.strip()
-                        start_time = driver.find_element(By.CSS_SELECTOR, ".race_start_time, #race-result-race-period-time").text.replace("発走予定", "").strip()
+                        # セレクタをより柔軟に
+                        start_time = driver.find_element(By.CSS_SELECTOR, ".race_start_time, #race-result-race-period-time, .start_time").text.replace("発走予定", "").strip()
                     except:
                         race_title = "Unknown"
                         start_time = "-"
@@ -138,8 +150,13 @@ def main():
                     }
 
                     base_data = {}
-                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".liveTable tbody tr")))
-                    for row in driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr"):
+                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".liveTable tbody tr, table tbody tr")))
+                    
+                    target_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
+                    if not target_rows:
+                        target_rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+
+                    for row in target_rows:
                         cols = row.find_elements(By.TAG_NAME, "td")
                         if len(cols) >= 6:
                             no = cols[0].text.strip()
@@ -172,7 +189,7 @@ def main():
                             "180湿_2連率":5, "180湿_連対回数":6, "180湿_出走数":7
                         })
                         
-                        # 近365日（必要に応じて追加）
+                        # 近365日
                         fetch_tab_data_robust(driver, wait, f"{base_url}/recent365", base_data, {
                             "365出走":2, "365優勝":4, "365_1着":6
                         })
