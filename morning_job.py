@@ -35,17 +35,15 @@ def get_safe_text(cols, idx):
     return "-"
 
 def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices, label=""):
-    """GitHub Actions向けに進捗を1行ずつ出力"""
     if label:
         print(f"      [取得中] {label}...", flush=True)
     try:
         driver.get(target_url)
-        # 待ち時間を2秒に固定して安定させる
-        time.sleep(2.0)
+        # タブ切り替え後の待機
+        time.sleep(2.5) 
         
-        # テーブルが表示されるか確認
-        wait_short = WebDriverWait(driver, 8)
-        wait_short.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr")) >= 5)
+        wait_short = WebDriverWait(driver, 10)
+        wait_short.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr td")) >= 2)
 
         tables = driver.find_elements(By.CSS_SELECTOR, "table")
         target_table = None
@@ -91,16 +89,14 @@ def main():
             
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(check_url)
-            time.sleep(2.0)
             
             try:
-                # 1. そもそもテーブルがあるか
-                # 2. そのテーブルの1行目の2列目（選手名）が空でないかを確認
-                check_wait = WebDriverWait(driver, 8)
-                check_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race-infoTable")))
+                # 強化された開催判定：中身(td)が出るまで最大15秒待つ
+                check_wait = WebDriverWait(driver, 15)
+                check_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr td")))
+                time.sleep(3.0) 
                 
                 rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
-                # 選手名が入るべき場所にテキストがあるか厳格にチェック
                 first_player = ""
                 if len(rows) > 0:
                     cols = rows[0].find_elements(By.TAG_NAME, "td")
@@ -110,12 +106,13 @@ def main():
                 if not first_player or first_player == "-" or first_player == "":
                     print(f"  => {place.upper()} 番組データが空のため非開催と判断", flush=True)
                     continue
+                
+                print(f"  => {place.upper()} 開催中を確認: {first_player}", flush=True)
 
             except TimeoutException:
-                print(f"  => {place.upper()} ページが反応しないためスキップ", flush=True)
+                print(f"  => {place.upper()} 読み込みタイムアウト（非開催と判断）", flush=True)
                 continue
 
-            # 開催アリと判断された場合のみ続行
             for r in range(1, 13):
                 try:
                     race_no_str = str(r).zfill(2)
@@ -125,17 +122,15 @@ def main():
                     driver.get(base_url + "/program")
                     time.sleep(2.0)
 
-                    # レース存在チェック
                     rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
                     if len(rows) < 5:
-                        print(f"  => {place.upper()} {r}R 番組なし。終了します。", flush=True)
+                        print(f"  => {place.upper()} {r}R 番組なし。終了。", flush=True)
                         break 
 
                     print(f"\n  [{race_id}] 処理開始...", flush=True)
-
                     base_data = {str(i): {"車": str(i)} for i in range(1, 9)}
                     
-                    # ヘッダー情報
+                    # ヘッダー情報の取得
                     try:
                         info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
                         h_data = {"日付": "-", "レース名": "-", "距離": "-", "天候": "-", "気温": "-", "湿度": "-", "走路温度": "-", "走路状況": "-"}
@@ -159,20 +154,9 @@ def main():
                     for b_slug, b_name in [("good5","良"), ("wet5","湿"), ("han5","斑")]:
                         fetch_tab_data_robust(driver, wait, f"{base_url}/{b_slug}", base_data, {f"{b_name}5_{k}":v for k,v in f_map.items()}, f"{b_name}5")
 
-                    fetch_tab_data_robust(driver, wait, base_url + "/recent90", base_data, {
-                        "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,
-                        "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11
-                    }, "90日")
-
-                    fetch_tab_data_robust(driver, wait, base_url + "/recent180", base_data, {
-                        "180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4,
-                        "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7
-                    }, "180日")
-
-                    fetch_tab_data_robust(driver, wait, base_url + "/total", base_data, {
-                        "今年_優出":2, "今年_優勝":3, "通算_優勝":5,
-                        "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11
-                    }, "年間")
+                    fetch_tab_data_robust(driver, wait, base_url + "/recent90", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "90日")
+                    fetch_tab_data_robust(driver, wait, base_url + "/recent180", base_data, {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "180日")
+                    fetch_tab_data_robust(driver, wait, base_url + "/total", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11}, "年間")
 
                     # 保存
                     df = pd.DataFrame(base_data.values())
