@@ -55,7 +55,7 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
                     for key, idx in col_indices.items():
                         data_map[t_no][key] = get_safe_text(t_cols, idx)
     except Exception as e:
-        print(f"      取得エラー ({target_url.split('/')[-1]}): {e}")
+        print("      取得エラー: " + str(e))
 
 def main():
     if not os.path.exists("data"): os.makedirs("data")
@@ -75,24 +75,26 @@ def main():
     try:
         for place in places:
             time.sleep(2.0)
-            print(f"\n--- {place.upper()} 取得開始 ---")
-            check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
+            print("\n--- " + place.upper() + " 取得開始 ---")
+            check_url = "https://autorace.jp/race_info/Program/" + place + "/" + today_str + "_1/program"
             driver.get(check_url)
             
-            # --- デバッグログ出力：ここを足しました ---
+            # --- デバッグログ出力（絶対にエラーが起きない形式） ---
             time.sleep(5.0) 
-            print(f"DEBUG: Current URL: {driver.current_url}")
-            print(f"DEBUG: Page Title: {driver.title}")
-            print(f"DEBUG: Page Source (Top 300): {driver.page_source[:300].replace('\\n', '')}")
-            driver.save_screenshot(f"debug_{place}.png")
-            # ---------------------------------------
+            print("DEBUG: Current URL: " + str(driver.current_url))
+            print("DEBUG: Page Title: " + str(driver.title))
+            # 取得したソースから改行を消して冒頭を表示
+            raw_html = driver.page_source[:300].replace("\n", " ").replace("\r", " ")
+            print("DEBUG: Page Source (Top 300): " + str(raw_html))
+            driver.save_screenshot("debug_" + place + ".png")
+            # --------------------------------------------------
 
             try:
                 # 開催確認：リンクの有無をチェック
-                race_links = driver.find_elements(By.CSS_SELECTOR, f"a[href*='Program/{place}/{today_str}']")
+                race_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='Program/" + place + "/" + today_str + "']")
                 
                 if not race_links: 
-                    print(f"  => {place} は開催されていないか、要素が見つかりません。")
+                    print("  => " + place + " は開催されていないか、要素が見つかりません。")
                     continue
                 
                 race_nums = []
@@ -103,20 +105,20 @@ def main():
                         race_nums.append(int(match.group(1)))
                 
                 if not race_nums:
-                    print(f"  => {place} のレース番号を取得できませんでした。")
+                    print("  => " + place + " のレース番号を取得できませんでした。")
                     continue
 
                 max_race = min(max(race_nums), 12)
-                print(f"  => {place}: 全 {max_race} レースを検出しました。")
+                print("  => " + place + ": 全 " + str(max_race) + " レースを検出しました。")
 
                 for r in range(1, max_race + 1):
                     time.sleep(1.5)
                     race_no_str = str(r).zfill(2)
-                    race_id = f"{today_id}_{place}_{race_no_str}"
-                    base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
+                    race_id = today_id + "_" + place + "_" + race_no_str
+                    base_url = "https://autorace.jp/race_info/Program/" + place + "/" + today_str + "_" + str(r)
                     
                     try:
-                        driver.get(f"{base_url}/program")
+                        driver.get(base_url + "/program")
                         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race-infoTable, table")))
                         time.sleep(1.0)
                         
@@ -158,23 +160,23 @@ def main():
                         if base_data:
                             f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平順":7, "近況":8, "2連":9}
                             for b in [("good5","良"), ("wet5","湿"), ("han5","斑")]:
-                                fetch_tab_data_robust(driver, wait, f"{base_url}/{b[0]}", base_data, {f"{b[1]}5_{k}":v for k,v in f_map.items()})
+                                fetch_tab_data_robust(driver, wait, base_url + "/" + b[0], base_data, {b[1] + "5_" + k:v for k,v in f_map.items()})
 
-                            fetch_tab_data_robust(driver, wait, f"{base_url}/recent90", base_data, {
+                            fetch_tab_data_robust(driver, wait, base_url + "/recent90", base_data, {
                                 "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, 
                                 "90_1着":6, "90_2連率":7, "90_3連率":8, "90平均試":9, "90平均競":10
                             })
 
-                            fetch_tab_data_robust(driver, wait, f"{base_url}/recent180", base_data, {
+                            fetch_tab_data_robust(driver, wait, base_url + "/recent180", base_data, {
                                 "180良_2連率":2, "180良_連対回数":3, "180良_出走数":4,
                                 "180湿_2連率":5, "180湿_連対回数":6, "180湿_出走数":7
                             })
 
-                            fetch_tab_data_robust(driver, wait, f"{base_url}/recent365", base_data, {
+                            fetch_tab_data_robust(driver, wait, base_url + "/recent365", base_data, {
                                 "365出走":2, "365優勝":4, "365_1着":6
                             })
 
-                            fetch_tab_data_robust(driver, wait, f"{base_url}/total", base_data, {
+                            fetch_tab_data_robust(driver, wait, base_url + "/total", base_data, {
                                 "今年_優出":2, "今年_優勝":3, "通算_優勝":5, 
                                 "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_2連率":10
                             })
@@ -200,13 +202,13 @@ def main():
                             if not df['総合スコア'].empty:
                                 df['予想着順'] = df['総合スコア'].rank(ascending=False, method='min').fillna(9).astype(int)
 
-                            df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
-                            print(f"  => {race_id} 保存完了")
+                            df.to_csv("data/race_data_" + place + "_" + race_no_str + "R.csv", index=False, encoding="utf-8-sig")
+                            print("  => " + race_id + " 保存完了")
                     except Exception as e: 
-                        print(f"  => {r}R 取得失敗: {e}")
+                        print("  => " + str(r) + "R 取得失敗: " + str(e))
 
             except Exception as e:
-                print(f"  => {place} 処理中にエラー: {e}")
+                print("  => " + place + " 処理中にエラー: " + str(e))
                 continue
     finally: 
         driver.quit()
