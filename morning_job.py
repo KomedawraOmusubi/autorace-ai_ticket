@@ -41,6 +41,8 @@ def get_rank_score(race_text, max_score):
 def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
     """タブ切り替え後のテーブルデータを取得"""
     try:
+        # サーバー負荷軽減のためのスリープ
+        time.sleep(1.5)
         driver.get(target_url)
         # データの読み込み完了を待機（liveTableまたはそれ以外のテーブル構造に対応）
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table.liveTable, table")))
@@ -76,6 +78,8 @@ def main():
 
     try:
         for place in places:
+            # 競馬場切り替え時のスリープ
+            time.sleep(3.0)
             print(f"\n--- {place.upper()} 取得開始 ---")
             # 開催確認用URL（1Rのprogramページを直接確認）
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
@@ -97,6 +101,8 @@ def main():
                 continue
 
             for r in range(1, max_race + 1):
+                # レース切り替え時のスリープ
+                time.sleep(2.0)
                 race_no_str = str(r).zfill(2)
                 race_id = f"{today_id}_{place}_{race_no_str}"
                 base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
