@@ -76,45 +76,39 @@ def main():
         for place in places:
             time.sleep(3.0)
             print("\n--- " + place.upper() + " 取得開始 ---")
-            # --- 修正ポイント: 1Rのプログラムページを起点にする ---
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(check_url)
-            
             time.sleep(5.0) 
-            print("DEBUG: Current URL: " + str(driver.current_url))
-            print("DEBUG: Page Title: " + str(driver.title))
-            
-            # --- 修正ポイント: 全レースのリンクを取得するセレクタを最適化 ---
-            # ページ上部の「1R 2R...」などのタブメニューからリンクを抽出
+
+            # レースリンクの取得
             race_links = driver.find_elements(By.CSS_SELECTOR, f"a[href*='/Program/{place}/{today_str}_']")
             
             if not race_links: 
-                print("  => " + place + " は開催されていないか、要素が見つかりません。")
+                print(f"  => {place} は開催されていないか、要素が見つかりません。")
                 continue
             
             race_nums = []
             for l in race_links:
                 href = l.get_attribute("href")
-                # URLからレース番号（.../日付_番号/program）を抽出
                 match = re.search(fr'{today_str}_(\d+)', href)
                 if match:
                     race_nums.append(int(match.group(1)))
             
             if not race_nums:
-                print("  => " + place + " のレース番号を取得できませんでした。")
+                print(f"  => {place} のレース番号を取得できませんでした。")
                 continue
 
             max_race = max(race_nums)
-            print("  => " + place + ": 全 " + str(max_race) + " レースを検出しました。")
+            print(f"  => {place}: 全 {max_race} レースを検出しました。")
 
+            # 各レースのループ
             for r in range(1, max_race + 1):
-                time.sleep(2.5)
-                race_no_str = str(r).zfill(2)
-                race_id = today_id + "_" + place + "_" + race_no_str
-                # --- 修正ポイント: URL構成を現在に合わせる ---
-                base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
-                
                 try:
+                    time.sleep(2.5)
+                    race_no_str = str(r).zfill(2)
+                    race_id = today_id + "_" + place + "_" + race_no_str
+                    base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
+                    
                     driver.get(base_url + "/program")
                     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race-infoTable, table")))
                     time.sleep(1.0)
@@ -157,6 +151,7 @@ def main():
                             }
 
                     if base_data:
+                        # タブデータ取得
                         fetch_tab_data_robust(driver, wait, base_url + "/recent10", base_data, {
                             "全10_1":2, "全10_2":3, "全10_3":4, "全10_4":5, "全10_5":6,
                             "全10_6":7, "全10_7":8, "全10_8":9, "全10_9":10, "全10_10":11
@@ -176,15 +171,13 @@ def main():
                             "180湿_2連率":5, "180湿_連対回数":6, "180湿_出走数":7
                         })
 
-                        fetch_tab_data_robust(driver, wait, base_url + "/recent365", base_data, {
-                            "365出走":2, "365優勝":4, "365_1着":6
-                        })
-
+                        fetch_tab_data_robust(driver, wait, base_url + "/recent365", base_data, {"365出走":2, "365優勝":4, "365_1着":6})
                         fetch_tab_data_robust(driver, wait, base_url + "/total", base_data, {
                             "今年_優出":2, "今年_優勝":3, "通算_優勝":5, 
                             "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_2連率":10
                         })
 
+                        # データ集計と計算
                         df = pd.DataFrame(base_data.values()).sort_values("車")
                         for c in ['ハンデ', '偏差', '90平均ST', '90平均競']:
                             if c in df.columns:
@@ -206,14 +199,13 @@ def main():
                         if not df['総合スコア'].empty:
                             df['予想着順'] = df['総合スコア'].rank(ascending=False, method='min').fillna(9).astype(int)
 
-                        df.to_csv("data/race_data_" + place + "_" + race_no_str + "R.csv", index=False, encoding="utf-8-sig")
-                        print("  => " + race_id + " 保存完了")
-                except Exception as e: 
-                    print("  => " + str(r) + "R 取得失敗: " + str(e))
+                        df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
+                        print(f"  => {race_id} 保存完了")
+                except Exception as e:
+                    print(f"  => {r}R 取得中にエラー: {e}")
 
-            except Exception as e:
-                print("  => " + place + " 処理中にエラー: " + str(e))
-                continue
+    except Exception as e:
+        print(f"\nメイン処理中にエラーが発生しました: {e}")
     finally: 
         driver.quit()
         print("\n全ての処理が終了しました。")
