@@ -22,30 +22,31 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas selenium webdriver-manager pytz requests
+          pip install pandas selenium webdriver-manager pytz
 
       - name: Run Morning Job
         run: python morning_job.py
         env:
           TZ: 'Asia/Tokyo'
 
-      - name: Commit and Push Base CSVs
+      - name: Commit and Push
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. リモートの最新状態（auto_ticket_v2）に合わせる
+          # コンフリクト防止：1回目の実行結果を一旦無視して強制同期
           git fetch origin auto_ticket_v2
-          git reset --soft origin/auto_ticket_v2
+          git reset --hard origin/auto_ticket_v2
           
-          # 2. 【重要】削除された古いファイルと、新しく作られたファイルを一括で名簿に反映
-          # これにより、空っぽにならず「今のCSVだけ」が残ります
-          git add -A data/*.csv || true
+          # 1回目に生成されたCSVも含め、名簿を一度白紙にする
+          git rm -rf data/*.csv || true
           
-          # 3. 変更（追加・削除の両方）があればコミット
+          # 2回目の最新CSVだけを登録
+          git add data/*.csv || true
+          
           if ! git diff --cached --quiet; then
-            git commit -m "Full refresh: Cleanup old files and Update data"
-            # 4. 強制プッシュでGitHub上を完全に「今の状態」に同期
+            git commit -m "Refresh data: Only latest files kept"
+            # GitHub上をこの「最新だけ」の状態に強制的に塗り替える
             git push -f origin auto_ticket_v2
           else
             echo "No changes detected."
