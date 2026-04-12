@@ -22,7 +22,7 @@ def get_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     options.add_argument('--lang=ja-JP')
-    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)')
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
@@ -42,11 +42,11 @@ def get_rank_score(race_text, max_score):
 
 def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
     try:
-        time.sleep(2.0)
         driver.get(target_url)
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".liveTable, table")))
-        time.sleep(0.5) 
-        t_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr, table tbody tr")
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
+        time.sleep(1.0)
+
+        t_rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
         for t_row in t_rows:
             t_cols = t_row.find_elements(By.TAG_NAME, "td")
             if len(t_cols) >= 2:
@@ -64,90 +64,107 @@ def main():
         except: pass
 
     now_jst = datetime.datetime.now(TOKYO_TZ)
-    today_str, today_id = now_jst.strftime("%Y-%m-%d"), now_jst.strftime("%Y%m%d")
+    today_str = now_jst.strftime("%Y-%m-%d")
+    today_id = now_jst.strftime("%Y%m%d")
+
     places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
+
     driver = get_driver()
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    })
     wait = WebDriverWait(driver, 20)
 
     try:
         for place in places:
-            time.sleep(3.0)
             print("\n--- " + place.upper() + " 取得開始 ---")
+
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(check_url)
-            time.sleep(5.0) 
 
-            # レースリンクの取得
-            race_links = driver.find_elements(By.CSS_SELECTOR, f"a[href*='/Program/{place}/{today_str}_']")
-            
-            if not race_links: 
-                print(f"  => {place} は開催されていないか、要素が見つかりません。")
-                continue
-            
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+            time.sleep(3)
+
+            links = wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, "a")))
+
             race_nums = []
-            for l in race_links:
+            for l in links:
                 href = l.get_attribute("href")
-                match = re.search(fr'{today_str}_(\d+)', href)
-                if match:
-                    race_nums.append(int(match.group(1)))
-            
+                if href and f"/Program/{place}/{today_str}_" in href:
+                    match = re.search(fr'{today_str}_(\d+)', href)
+                    if match:
+                        race_nums.append(int(match.group(1)))
+
             if not race_nums:
-                print(f"  => {place} のレース番号を取得できませんでした。")
+                print(f"  => {place} は開催されていないか、要素が見つかりません。")
                 continue
 
             max_race = max(race_nums)
             print(f"  => {place}: 全 {max_race} レースを検出しました。")
 
-            # 各レースのループ
             for r in range(1, max_race + 1):
                 try:
-                    time.sleep(2.5)
                     race_no_str = str(r).zfill(2)
                     race_id = today_id + "_" + place + "_" + race_no_str
                     base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
-                    
+
                     driver.get(base_url + "/program")
-                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race-infoTable, table")))
-                    time.sleep(1.0)
-                    
+                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
+                    time.sleep(1)
+
                     info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
+
                     def get_info_val(t_idx, c_idx):
-                        try: return info_tables[t_idx].find_elements(By.TAG_NAME, "td")[c_idx].text.strip()
-                        except: return "-"
+                        try:
+                            return info_tables[t_idx].find_elements(By.TAG_NAME, "td")[c_idx].text.strip()
+                        except:
+                            return "-"
 
                     try:
-                        grade_title = driver.find_element(By.CSS_SELECTOR, "h1, .race_grade_title").text.strip()
+                        grade_title = driver.find_element(By.CSS_SELECTOR, "h1").text.strip()
                         race_title = driver.find_element(By.CLASS_NAME, "race_title").text.strip()
-                        start_time = driver.find_element(By.CSS_SELECTOR, ".race_start_time, .start_time").text.replace("発走予定", "").strip()
+                        start_time = driver.find_element(By.CSS_SELECTOR, ".start_time").text.replace("発走予定", "").strip()
                     except:
                         grade_title, race_title, start_time = "Unknown", "Unknown", "-"
 
                     info = {
-                        "grade": grade_title, "name": race_title, "dist": get_info_val(0, 2), "weather": get_info_val(0, 3),
-                        "temp": get_info_val(1, 0), "humid": get_info_val(1, 1), "road_t": get_info_val(1, 2),
-                        "road_c": get_info_val(1, 3), "start": start_time
+                        "grade": grade_title,
+                        "name": race_title,
+                        "dist": get_info_val(0, 2),
+                        "weather": get_info_val(0, 3),
+                        "temp": get_info_val(1, 0),
+                        "humid": get_info_val(1, 1),
+                        "road_t": get_info_val(1, 2),
+                        "road_c": get_info_val(1, 3),
+                        "start": start_time
                     }
 
                     base_data = {}
-                    target_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr, table tbody tr")
+                    rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
 
-                    for row in target_rows:
+                    for row in rows:
                         cols = row.find_elements(By.TAG_NAME, "td")
                         if len(cols) >= 6:
                             no = cols[0].text.strip()
-                            if not no.isdigit(): continue
+                            if not no.isdigit():
+                                continue
+
                             base_data[no] = {
-                                "レースID": race_id, "日付": today_str, "場所": place, 
-                                "グレード大会名": info["grade"], "レース名": info["name"],
-                                "距離": info["dist"], "天候": info["weather"], "気温": info["temp"], "湿度": info["humid"],
-                                "走路温度": info["road_t"], "走路状況": info["road_c"],
-                                "車": no, "選手名": cols[1].text.split('\n')[0].strip(),
+                                "レースID": race_id,
+                                "日付": today_str,
+                                "場所": place,
+                                "グレード大会名": info["grade"],
+                                "レース名": info["name"],
+                                "距離": info["dist"],
+                                "天候": info["weather"],
+                                "気温": info["temp"],
+                                "湿度": info["humid"],
+                                "走路温度": info["road_t"],
+                                "走路状況": info["road_c"],
+                                "車": no,
+                                "選手名": cols[1].text.split('\n')[0].strip(),
                                 "発走予定": info["start"],
-                                "ハンデ": cols[2].text.strip(), "試走T": get_safe_text(cols, 3),
-                                "偏差": cols[4].text.strip(), "出走表_連率": cols[5].text.strip()
+                                "ハンデ": cols[2].text.strip(),
+                                "試走T": get_safe_text(cols, 3),
+                                "偏差": cols[4].text.strip(),
+                                "出走表_連率": cols[5].text.strip()
                             }
 
                     if base_data:
@@ -171,42 +188,30 @@ def main():
                             "180湿_2連率":5, "180湿_連対回数":6, "180湿_出走数":7
                         })
 
-                        fetch_tab_data_robust(driver, wait, base_url + "/recent365", base_data, {"365出走":2, "365優勝":4, "365_1着":6})
+                        fetch_tab_data_robust(driver, wait, base_url + "/recent365", base_data, {
+                            "365出走":2, "365優勝":4, "365_1着":6
+                        })
+
                         fetch_tab_data_robust(driver, wait, base_url + "/total", base_data, {
                             "今年_優出":2, "今年_優勝":3, "通算_優勝":5, 
                             "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_2連率":10
                         })
 
-                        # データ集計と計算
                         df = pd.DataFrame(base_data.values()).sort_values("車")
-                        for c in ['ハンデ', '偏差', '90平均ST', '90平均競']:
-                            if c in df.columns:
-                                df[c] = pd.to_numeric(df[c].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
-                        
-                        avg_st = df['90平均ST'].mean() if '90平均ST' in df.columns else 0.15
-                        times, scores = [], []
-                        for _, row in df.iterrows():
-                            s = get_rank_score(row.get('良5_前1', '-'), 30) + get_rank_score(row.get('良5_前2', '-'), 20)
-                            bt = row.get('90平均競', 0)
-                            if bt == 0: 
-                                times.append(0.0); scores.append(0.0)
-                            else:
-                                ft = bt + (row['ハンデ']*0.001) + (row['偏差']*0.1) + ((row['90平均ST']-avg_st)*0.1)
-                                times.append(round(ft, 3))
-                                scores.append(round(s + (3.600 - ft) * 1000, 2))
-                        
-                        df['予想タイム'], df['総合スコア'] = times, scores
-                        if not df['総合スコア'].empty:
-                            df['予想着順'] = df['総合スコア'].rank(ascending=False, method='min').fillna(9).astype(int)
 
-                        df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
+                        df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv",
+                                  index=False,
+                                  encoding="utf-8-sig")
+
                         print(f"  => {race_id} 保存完了")
+
                 except Exception as e:
-                    print(f"  => {r}R 取得中にエラー: {e}")
+                    print(f"  => {r}R エラー: {e}")
 
     except Exception as e:
-        print(f"\nメイン処理中にエラーが発生しました: {e}")
-    finally: 
+        print("メインエラー:", e)
+
+    finally:
         driver.quit()
         print("\n全ての処理が終了しました。")
 
