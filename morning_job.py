@@ -80,7 +80,6 @@ def main():
             driver.get(check_url)
             time.sleep(5.0) 
 
-            # --- 修正箇所：全リンクから今日のレース番号を抽出 ---
             all_links = driver.find_elements(By.TAG_NAME, "a")
             race_nums = []
             pattern = "/Program/" + place + "/" + today_str + "_"
@@ -109,10 +108,22 @@ def main():
                     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
                     time.sleep(1.0)
                     
+                    # --- レース詳細情報の取得 ---
                     try:
                         race_title = driver.find_element(By.CLASS_NAME, "race_title").text.strip()
+                        info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
+                        def get_info(t_idx, td_idx):
+                            try: return info_tables[t_idx].find_elements(By.TAG_NAME, "td")[td_idx].text.strip()
+                            except: return "-"
+                        
+                        dist = get_info(0, 2)
+                        weather = get_info(0, 3)
+                        temp = get_info(1, 0)
+                        humid = get_info(1, 1)
+                        road_temp = get_info(1, 2)
+                        road_cond = get_info(1, 3)
                     except:
-                        race_title = "Unknown"
+                        race_title, dist, weather, temp, humid, road_temp, road_cond = "Unknown", "-", "-", "-", "-", "-", "-"
 
                     base_data = {}
                     target_rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
@@ -123,17 +134,25 @@ def main():
                             no = cols[0].text.strip()
                             if not no.isdigit(): continue
                             base_data[no] = {
-                                "レースID": race_id, "日付": today_str, "場所": place, "レース名": race_title,
+                                "レースID": race_id, "日付": today_str, "場所": place, "レース": str(r) + "R",
+                                "開催名": race_title, "距離": dist, "天候": weather, "気温": temp, "湿度": humid,
+                                "走路温度": road_temp, "走路状況": road_cond,
                                 "車": no, "選手名": cols[1].text.split('\n')[0].strip(),
                                 "ハンデ": cols[2].text.strip(), "試走T": get_safe_text(cols, 3),
                                 "偏差": cols[4].text.strip(), "出走表_連率": cols[5].text.strip()
                             }
 
                     if base_data:
+                        # 良/湿5走タブ
                         f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平順":7, "近況":8, "2連":9}
                         for b in [("good5","良"), ("wet5","湿"), ("han5","斑")]:
                             fetch_tab_data_robust(driver, wait, base_url + "/" + b[0], base_data, {b[1] + "5_" + k:v for k,v in f_map.items()})
 
+                        # 近10走タブ
+                        recent10_map = {f"近10_前{i}": i+1 for i in range(1, 11)}
+                        fetch_tab_data_robust(driver, wait, base_url + "/recent10", base_data, recent10_map)
+
+                        # 近況90日タブ
                         fetch_tab_data_robust(driver, wait, base_url + "/recent90", base_data, {
                             "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, 
                             "90_1着":6, "90_2連率":7, "90_3連率":8, "90平均試":9, "90平均競":10
@@ -147,6 +166,7 @@ def main():
                         avg_st = df['90平均ST'].mean() if '90平均ST' in df.columns else 0.15
                         times, scores = [], []
                         for _, row in df.iterrows():
+                            # 総合スコア計算（良5走の前1, 前2をベースにする例）
                             s = get_rank_score(row.get('良5_前1', '-'), 30) + get_rank_score(row.get('良5_前2', '-'), 20)
                             bt = row.get('90平均競', 0)
                             if bt == 0: 
