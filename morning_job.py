@@ -123,7 +123,7 @@ def main():
                     base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
 
                     driver.get(base_url + "/program")
-                    time.sleep(1.5)
+                    time.sleep(2.0)
 
                     # レース存在チェック
                     rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
