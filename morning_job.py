@@ -79,8 +79,11 @@ def main():
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(check_url)
             
-            # --- デバッグ用：スクリーンショット保存 ---
+            # --- デバッグログ出力：ここを足しました ---
             time.sleep(5.0) 
+            print(f"DEBUG: Current URL: {driver.current_url}")
+            print(f"DEBUG: Page Title: {driver.title}")
+            print(f"DEBUG: Page Source (Top 300): {driver.page_source[:300].replace('\\n', '')}")
             driver.save_screenshot(f"debug_{place}.png")
             # ---------------------------------------
 
@@ -92,8 +95,12 @@ def main():
                     print(f"  => {place} は開催されていないか、要素が見つかりません。")
                     continue
                 
-                race_nums = [int(re.search(r'_(\d+)(/|$)', l.get_attribute("href")).group(1)) 
-                             for l in race_links if re.search(r'_(\d+)(/|$)', l.get_attribute("href"))]
+                race_nums = []
+                for l in race_links:
+                    href = l.get_attribute("href")
+                    match = re.search(r'_(\d+)(/|$)', href)
+                    if match:
+                        race_nums.append(int(match.group(1)))
                 
                 if not race_nums:
                     print(f"  => {place} のレース番号を取得できませんでした。")
