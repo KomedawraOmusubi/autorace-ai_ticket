@@ -41,26 +41,14 @@ def get_rank_score(race_text, max_score):
     rank = int(match.group(1))
     return max(0, max_score - (rank - 1) * (max_score / 4.0))
 
+# ★ここだけ修正
 def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
     try:
-        # ★ 旧テーブルを保持（更新検知用）
-        old_table = None
-        try:
-            old_table = driver.find_element(By.CSS_SELECTOR, "table")
-        except:
-            pass
-
         driver.get(target_url)
 
-        # ★ テーブル更新待ち（重要）
-        if old_table:
-            try:
-                wait.until(EC.staleness_of(old_table))
-            except:
-                pass
-
+        # ★ テーブル出現待ち（シンプルに）
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody")))
-        time.sleep(random.uniform(1.5, 3.0))  # ★ランダム待機
+        time.sleep(random.uniform(2.0, 4.0))
 
         # ★ 表示テーブルを1つだけ取得
         tables = driver.find_elements(By.CSS_SELECTOR, "table")
