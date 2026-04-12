@@ -4,7 +4,6 @@ import datetime
 import pandas as pd
 import pytz
 import glob
-import re
 import random
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -36,17 +35,20 @@ def get_safe_text(cols, idx):
     return "-"
 
 def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices, label=""):
-    """タブごとの取得状況を表示し、失敗時は即スキップ"""
+    """GitHub Actions向けに進捗を1行ずつ出力"""
     if label:
-        print(f"      -> {label} 取得中...", end="\r")
+        print(f"      [取得中] {label}...", flush=True)
     try:
         driver.get(target_url)
-        wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr")) >= 5)
-        time.sleep(random.uniform(1.0, 1.5))
+        # 待ち時間を2秒に固定して安定させる
+        time.sleep(2.0)
+        
+        # テーブルが表示されるか確認
+        wait_short = WebDriverWait(driver, 8)
+        wait_short.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr")) >= 5)
 
         tables = driver.find_elements(By.CSS_SELECTOR, "table")
         target_table = None
-
         for table in tables:
             if table.is_displayed():
                 rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
@@ -66,7 +68,8 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices, label
                     for key, idx in col_indices.items():
                         data_map[t_no][key] = get_safe_text(t_cols, idx)
     except Exception:
-        pass
+        if label:
+            print(f"      [スキップ] {label} (データなし)", flush=True)
 
 def main():
     if not os.path.exists("data"): os.makedirs("data")
@@ -84,16 +87,35 @@ def main():
 
     try:
         for place in places:
-            print(f"\n--- {place.upper()} 開催チェック ---")
+            print(f"\n--- {place.upper()} 開催チェック ---", flush=True)
             
             check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(check_url)
+            time.sleep(2.0)
+            
             try:
-                WebDriverWait(driver, 7).until(EC.presence_of_element_located((By.CLASS_NAME, "race-infoTable")))
+                # 1. そもそもテーブルがあるか
+                # 2. そのテーブルの1行目の2列目（選手名）が空でないかを確認
+                check_wait = WebDriverWait(driver, 8)
+                check_wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race-infoTable")))
+                
+                rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+                # 選手名が入るべき場所にテキストがあるか厳格にチェック
+                first_player = ""
+                if len(rows) > 0:
+                    cols = rows[0].find_elements(By.TAG_NAME, "td")
+                    if len(cols) >= 2:
+                        first_player = cols[1].text.strip()
+
+                if not first_player or first_player == "-" or first_player == "":
+                    print(f"  => {place.upper()} 番組データが空のため非開催と判断", flush=True)
+                    continue
+
             except TimeoutException:
-                print(f"  => {place.upper()} は本日開催がないためスキップ")
+                print(f"  => {place.upper()} ページが反応しないためスキップ", flush=True)
                 continue
 
+            # 開催アリと判断された場合のみ続行
             for r in range(1, 13):
                 try:
                     race_no_str = str(r).zfill(2)
@@ -101,15 +123,15 @@ def main():
                     base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
 
                     driver.get(base_url + "/program")
-                    
-                    try:
-                        WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "race-infoTable")))
-                    except TimeoutException:
-                        print(f"  => {place.upper()} {r}R 以降なし。")
+                    time.sleep(1.5)
+
+                    # レース存在チェック
+                    rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+                    if len(rows) < 5:
+                        print(f"  => {place.upper()} {r}R 番組なし。終了します。", flush=True)
                         break 
 
-                    print(f"  [{race_id}] 取得開始")
-                    time.sleep(random.uniform(1.0, 1.5))
+                    print(f"\n  [{race_id}] 処理開始...", flush=True)
 
                     base_data = {str(i): {"車": str(i)} for i in range(1, 9)}
                     
@@ -135,7 +157,7 @@ def main():
                     
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
                     for b_slug, b_name in [("good5","良"), ("wet5","湿"), ("han5","斑")]:
-                        fetch_tab_data_robust(driver, wait, base_url + "/" + b_slug, base_data, {f"{b_name}5_{k}":v for k,v in f_map.items()}, f"{b_name}5")
+                        fetch_tab_data_robust(driver, wait, f"{base_url}/{b_slug}", base_data, {f"{b_name}5_{k}":v for k,v in f_map.items()}, f"{b_name}5")
 
                     fetch_tab_data_robust(driver, wait, base_url + "/recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,
@@ -158,14 +180,14 @@ def main():
                     df = df.sort_values("車")
                     df = df[df['選手名'].notna() & (df['選手名'] != "-")]
                     df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
-                    print(f"  => {race_id} 保存完了          ")
+                    print(f"  => {race_id} 保存完了", flush=True)
 
                 except Exception as e:
-                    print(f"  => {r}R エラー: {e}")
+                    print(f"  => {r}R 取得失敗: {e}", flush=True)
 
     finally:
         driver.quit()
-        print("\n全ての処理が終了しました。")
+        print("\n全ての処理が終了しました。", flush=True)
 
 if __name__ == "__main__":
     main()
