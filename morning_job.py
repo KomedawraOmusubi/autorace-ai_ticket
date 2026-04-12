@@ -42,14 +42,19 @@ def fetch_tab_data_robust(driver, wait, target_url, data_map, col_indices):
     """タブ切り替え後のテーブルデータを取得"""
     try:
         driver.get(target_url)
-        # データの読み込み完了を待機
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".liveTable tbody tr")))
-        time.sleep(1.5) # 念のための追加待機
+        # データの読み込み完了を待機（liveTableまたはそれ以外のテーブル構造に対応）
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table.liveTable, table")))
+        time.sleep(2.0) # 念のための追加待機
         
+        # テーブル行の取得（liveTableを優先）
         t_rows = driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr")
+        if not t_rows:
+            t_rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+            
         for t_row in t_rows:
             t_cols = t_row.find_elements(By.TAG_NAME, "td")
             if len(t_cols) >= 2:
+                # 車番の取得
                 t_no = t_cols[0].text.strip()
                 if t_no in data_map:
                     for key, idx in col_indices.items():
@@ -64,29 +69,28 @@ def main():
         except: pass
 
     now_jst = datetime.datetime.now(TOKYO_TZ)
-    # 開催日を判定。早朝の場合は前日のデータを参照する場合があるため調整が必要な場合もあります
     today_str, today_id = now_jst.strftime("%Y-%m-%d"), now_jst.strftime("%Y%m%d")
     places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
     driver = get_driver()
-    wait = WebDriverWait(driver, 20) # タイムアウトを少し延長
+    wait = WebDriverWait(driver, 20)
 
     try:
         for place in places:
             print(f"\n--- {place.upper()} 取得開始 ---")
-            # 開催確認用URL（出走表の1R）
-            check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1"
+            # 開催確認用URL（1Rのprogramページを直接確認）
+            check_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(check_url)
             
             try:
                 # レース番号ナビゲーションが表示されるまで待機
-                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race_number_nav")))
-                race_elements = driver.find_elements(By.CSS_SELECTOR, ".race_number_nav li a")
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".race_number_nav, .race_num_list")))
+                race_elements = driver.find_elements(By.CSS_SELECTOR, ".race_number_nav li a, .race_num_list li a")
                 race_nums = [el.text for el in race_elements if el.text.isdigit()]
                 
                 if not race_nums: 
                     print(f"  => {place} は開催されていないか、番組がありません。")
                     continue
-                max_race = int(race_nums[-1])
+                max_race = int(max(race_nums, key=int))
                 print(f"  => {place}: 全 {max_race} レースを検出しました。")
             except Exception:
                 print(f"  => {place} は開催されていないか、要素が見つかりません。")
@@ -101,17 +105,14 @@ def main():
                     # 基本の出走表ページへ
                     driver.get(f"{base_url}/program")
                     wait.until(EC.presence_of_element_located((By.CLASS_NAME, "race-infoTable")))
-                    time.sleep(1)
+                    time.sleep(1.5)
                     
-                    # レースコンディション取得
                     info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
-                    
                     def get_info_val(table_idx, col_idx):
                         try:
                             return info_tables[table_idx].find_elements(By.TAG_NAME, "td")[col_idx].text.strip()
                         except: return "-"
 
-                    # 要素の存在チェックを厳密に
                     try:
                         race_title = driver.find_element(By.CLASS_NAME, "race_title").text.strip()
                         start_time = driver.find_element(By.CSS_SELECTOR, ".race_start_time, #race-result-race-period-time").text.replace("発走予定", "").strip()
@@ -131,7 +132,6 @@ def main():
                     }
 
                     base_data = {}
-                    # 出走表（基本情報）の行を取得
                     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".liveTable tbody tr")))
                     for row in driver.find_elements(By.CSS_SELECTOR, ".liveTable tbody tr"):
                         cols = row.find_elements(By.TAG_NAME, "td")
@@ -149,21 +149,29 @@ def main():
                             }
 
                     if base_data:
-                        # 各タブデータの取得
+                        # 直近5走データ取得（良・湿・斑）
                         f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平順":7, "近況":8, "2連":9}
-                        for b in [("good","良"), ("wet","湿"), ("patchy","斑")]:
-                            fetch_tab_data_robust(driver, wait, f"{base_url}/recent5_{b[0]}", base_data, {f"{b[1]}5_{k}":v for k,v in f_map.items()})
+                        for b in [("good5","良"), ("wet5","湿"), ("han5","斑")]:
+                            fetch_tab_data_robust(driver, wait, f"{base_url}/{b[0]}", base_data, {f"{b[1]}5_{k}":v for k,v in f_map.items()})
 
+                        # 近90日
                         fetch_tab_data_robust(driver, wait, f"{base_url}/recent90", base_data, {
                             "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, 
                             "90_1着":6, "90_2連率":7, "90_3連率":8, "90平均試":9, "90平均競":10
                         })
 
+                        # 近180日
                         fetch_tab_data_robust(driver, wait, f"{base_url}/recent180", base_data, {
                             "180良_2連率":2, "180良_連対回数":3, "180良_出走数":4,
                             "180湿_2連率":5, "180湿_連対回数":6, "180湿_出走数":7
                         })
+                        
+                        # 近365日（必要に応じて追加）
+                        fetch_tab_data_robust(driver, wait, f"{base_url}/recent365", base_data, {
+                            "365出走":2, "365優勝":4, "365_1着":6
+                        })
 
+                        # 今年度/通算
                         fetch_tab_data_robust(driver, wait, f"{base_url}/total", base_data, {
                             "今年_優出":2, "今年_優勝":3, "通算_優勝":5, 
                             "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_2連率":10
