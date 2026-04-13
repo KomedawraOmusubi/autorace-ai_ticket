@@ -4,7 +4,7 @@ import datetime
 import pandas as pd
 import pytz
 import glob
-import random # 追加
+import random
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -43,12 +43,17 @@ def fetch_tab_data_by_click(driver, wait, tab_text, data_map, col_indices, label
     if label:
         print(f"      [取得中] {label}...", flush=True)
     try:
-        tab_element = wait.until(EC.element_to_be_clickable((By.XPATH, f"//ul[contains(@class, 'nav-tabs')]//a[contains(text(), '{tab_text}')]")))
-        driver.execute_script("arguments[0].click();", tab_element)
+        # --- 出走表は初期表示されているためクリックをスキップする ---
+        if tab_text != "出走表":
+            # normalize-space() を使用して、空白が含まれていても確実に特定できるように修正
+            xpath = f"//ul[contains(@class, 'nav-tabs')]//a[contains(normalize-space(), '{tab_text}')]"
+            tab_element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+            driver.execute_script("arguments[0].click();", tab_element)
+            
+            # タブ切り替え後のランダムスリープ
+            time.sleep(random.uniform(1.2, 2.0)) 
         
-        # --- ランダムスリープ (1.2秒〜2.0秒の間) ---
-        time.sleep(random.uniform(1.2, 2.0)) 
-        
+        # テーブルの取得ロジック
         wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr td")) >= 2)
         tables = driver.find_elements(By.CSS_SELECTOR, "table")
         target_table = None
@@ -88,7 +93,6 @@ def main():
 
     try:
         driver.get("https://autorace.jp/")
-        # --- ランダムスリープ (2.5秒〜4.0秒の間) ---
         time.sleep(random.uniform(2.5, 4.0))
         
         active_places = []
@@ -111,7 +115,6 @@ def main():
                     base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
 
                     driver.get(base_url + "/program")
-                    # --- ランダムスリープ (2.0秒〜3.5秒の間) ---
                     time.sleep(random.uniform(2.0, 3.5))
 
                     rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
@@ -143,16 +146,18 @@ def main():
                             base_data[car_no].update({"場所": place, "車": car_no, **h_data})
                     except: pass
 
+                    # 出走表はクリック不要でデータ取得のみ行う
                     fetch_tab_data_by_click(driver, wait, "出走表", base_data, {"選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表")
+                    
                     fetch_tab_data_by_click(driver, wait, "近10走", base_data, {f"近10_{i}": i+1 for i in range(1, 11)}, "近10走")
                     
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
-                    for tab_name in ["良", "湿", "斑"]:
+                    for tab_name in ["良5走", "湿5走", "斑5走"]:
                         fetch_tab_data_by_click(driver, wait, tab_name, base_data, {f"{tab_name}5_{k}":v for k,v in f_map.items()}, f"{tab_name}5")
                     
-                    fetch_tab_data_by_click(driver, wait, "90日", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "90日")
-                    fetch_tab_data_by_click(driver, wait, "180日", base_data, {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "180日")
-                    fetch_tab_data_by_click(driver, wait, "年間", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10}, "年間")
+                    fetch_tab_data_by_click(driver, wait, "90日", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "近90日")
+                    fetch_tab_data_by_click(driver, wait, "180日", base_data, {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "近180日")
+                    fetch_tab_data_by_click(driver, wait, "年間", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10}, "今年/通算")
 
                     df = pd.DataFrame(base_data.values())
                     df['車'] = pd.to_numeric(df['車'], errors='coerce')
