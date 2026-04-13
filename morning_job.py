@@ -39,15 +39,15 @@ def get_safe_text(cols, idx):
         return val if val and val != "" and val != "." else "-"
     return "-"
 
-def fetch_tab_data_by_click(driver, wait, tab_text, data_map, col_indices, label=""):
+def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, label=""):
     if label:
         print(f"      [取得中] {label}...", flush=True)
     try:
-        # --- 出走表は初期表示されているためクリックをスキップする ---
-        if tab_text != "出走表":
-            # normalize-space() を使用して、空白が含まれていても確実に特定できるように修正
-            xpath = f"//ul[contains(@class, 'nav-tabs')]//a[contains(normalize-space(), '{tab_text}')]"
-            tab_element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+        # --- 出走表(program)は初期表示されているためクリックをスキップする ---
+        if submenu_id != "program":
+            # 画像ソースから判明した data-program-submenu 属性を直接狙う
+            xpath = f"//*[@data-program-submenu='{submenu_id}']"
+            tab_element = wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
             driver.execute_script("arguments[0].click();", tab_element)
             
             # タブ切り替え後のランダムスリープ
@@ -146,18 +146,22 @@ def main():
                             base_data[car_no].update({"場所": place, "車": car_no, **h_data})
                     except: pass
 
-                    # 出走表はクリック不要でデータ取得のみ行う
-                    fetch_tab_data_by_click(driver, wait, "出走表", base_data, {"選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表")
+                    # 1. 出走表
+                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表")
                     
-                    fetch_tab_data_by_click(driver, wait, "近10走", base_data, {f"近10_{i}": i+1 for i in range(1, 11)}, "近10走")
+                    # 2. 近10走
+                    fetch_tab_data_by_click(driver, wait, "recent10", base_data, {f"近10_{i}": i+1 for i in range(1, 11)}, "近10走")
                     
+                    # 3. 走路別5走 (good5=良, wet5=湿, han5=斑)
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
-                    for tab_name in ["良5走", "湿5走", "斑5走"]:
-                        fetch_tab_data_by_click(driver, wait, tab_name, base_data, {f"{tab_name}5_{k}":v for k,v in f_map.items()}, f"{tab_name}5")
+                    for sub_id in ["good5", "wet5", "han5"]:
+                        label_name = "良5走" if sub_id=="good5" else "湿5走" if sub_id=="wet5" else "斑5走"
+                        fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{label_name}_{k}":v for k,v in f_map.items()}, label_name)
                     
-                    fetch_tab_data_by_click(driver, wait, "90日", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "近90日")
-                    fetch_tab_data_by_click(driver, wait, "180日", base_data, {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "近180日")
-                    fetch_tab_data_by_click(driver, wait, "年間", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10}, "今年/通算")
+                    # 4. 期間別 (recent90=90日, recent180=180日, recent365=年間)
+                    fetch_tab_data_by_click(driver, wait, "recent90", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "近90日")
+                    fetch_tab_data_by_click(driver, wait, "recent180", base_data, {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "近180日")
+                    fetch_tab_data_by_click(driver, wait, "recent365", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10}, "今年/通算")
 
                     df = pd.DataFrame(base_data.values())
                     df['車'] = pd.to_numeric(df['車'], errors='coerce')
