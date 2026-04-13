@@ -39,13 +39,16 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
     if label:
         print(f"      [取得中] {label}...", flush=True)
     try:
+        # 取得前にその項目の値を "-" で初期化（前のデータ残留防止）
+        for car_no in data_map:
+            for key in col_indices.keys():
+                data_map[car_no][key] = "-"
+
         if submenu_id != "program" or force_click:
-            # ★ 修正: 要素の書き換え判定用の古い値を取得
-            old_val = ""
+            # ★ 修正：ヘッダーではなく「1行目」を保持
+            old_first_row = ""
             try:
-                current_table = driver.find_element(By.CSS_SELECTOR, "table.liveTable")
-                if current_table.is_displayed():
-                    old_val = current_table.find_element(By.CSS_SELECTOR, "tbody tr td").text.strip()
+                old_first_row = driver.find_element(By.CSS_SELECTOR, "table.liveTable tbody tr").text
             except:
                 pass
 
@@ -53,20 +56,19 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
             driver.execute_script("arguments[0].click();", target_tab)
             
-            # ★ 修正: テキストが変化するまで待機するロジック
+            # ★ 修正：1行目が変わるまで待機
             def table_updated(d):
                 try:
-                    new_table = d.find_element(By.CSS_SELECTOR, "table.liveTable")
-                    if not new_table.is_displayed(): return False
-                    new_val = new_table.find_element(By.CSS_SELECTOR, "tbody tr td").text.strip()
-                    return new_val != old_val if old_val else True
+                    row = d.find_element(By.CSS_SELECTOR, "table.liveTable tbody tr")
+                    return row.text != old_first_row
                 except:
                     return False
 
             try:
-                WebDriverWait(driver, 7).until(table_updated)
+                WebDriverWait(driver, 8).until(table_updated)
+                time.sleep(1.0)  # 描画安定のためのバッファ
             except:
-                time.sleep(1.5) # 失敗時は安全策として少し待機
+                time.sleep(2.0)
         
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table.liveTable tbody tr td")))
         tables = driver.find_elements(By.CSS_SELECTOR, "table.liveTable")
@@ -84,19 +86,20 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                 if len(cols) >= 2:
                     car_no = cols[0].text.strip()
                     if car_no in data_map:
-                        # ★ 修正: ズレ対策。空要素を除外したリストでインデックス管理
+                        # 空白セルを完全に除外したテキストリストを作成
                         row_texts = [c.text.strip().replace("\n", " ") for c in cols if c.text.strip() != ""]
                         
                         if submenu_id == "recent10":
-                            # 近10走用: 車番(0番目)を除いた1番目以降を割り当て
+                            # 近10走
                             for i in range(1, 11):
                                 key = f"近10_{i}"
-                                data_map[car_no][key] = row_texts[i] if i < len(row_texts) else "-"
+                                if i < len(row_texts):
+                                    data_map[car_no][key] = row_texts[i]
                         else:
-                            # 通常用（出走表など）
+                            # 通常タブ
                             for key, idx in col_indices.items():
-                                # get_safe_textの代わりに精査済みリストから取得
-                                data_map[car_no][key] = row_texts[idx] if idx < len(row_texts) else "-"
+                                if idx < len(row_texts):
+                                    data_map[car_no][key] = row_texts[idx]
     except Exception as e:
         if label: print(f"      [スキップ] {label}", flush=True)
 
@@ -156,7 +159,6 @@ def main():
                     recent10_indices = {f"近10_{i}": i for i in range(1, 11)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_indices, "近10走")
                     
-                    # --- 以降、要望によりコメントアウト ---
                     """
                     # 良・湿・斑
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
