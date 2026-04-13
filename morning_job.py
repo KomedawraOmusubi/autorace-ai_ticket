@@ -12,7 +12,6 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
 
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
@@ -41,38 +40,55 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
         print(f"      [取得中] {label}...", flush=True)
     try:
         if submenu_id != "program" or force_click:
-            # タブをクリック
+            # 更新検知用の古いテキストを取得（一番左上の車番など）
+            old_val = ""
+            try:
+                current_table = driver.find_element(By.CSS_SELECTOR, "table.liveTable")
+                if current_table.is_displayed():
+                    old_val = current_table.find_element(By.CSS_SELECTOR, "tbody tr td").text.strip()
+            except:
+                pass
+
             xpath = f"//*[@data-program-submenu='{submenu_id}']"
-            tab_element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-            driver.execute_script("arguments[0].click();", tab_element)
-            # テンプレートからテーブルが生成されるのを待つ
-            time.sleep(random.uniform(2.0, 3.0)) 
+            target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+            driver.execute_script("arguments[0].click();", target_tab)
+            
+            # 要素が書き換わる（テキストが変化する）まで待機
+            def table_updated(d):
+                try:
+                    new_table = d.find_element(By.CSS_SELECTOR, "table.liveTable")
+                    if not new_table.is_displayed(): return False
+                    new_val = new_table.find_element(By.CSS_SELECTOR, "tbody tr td").text.strip()
+                    return new_val != old_val if old_val else True
+                except:
+                    return False
+
+            try:
+                WebDriverWait(driver, 7).until(table_updated)
+            except:
+                # タイムアウトしても念のため少し待って続行
+                time.sleep(1.0)
         
-        # クリックしたタブ(submenu_id)に対応するパネル内にあるテーブルを特定
-        # これにより、別タブ（出走表など）の古いテーブルを拾うのを防ぐ
-        try:
-            # 活性化しているパネル（idがsubmenu_idのもの）を優先的に探す
-            panel = wait.until(EC.presence_of_element_located((By.ID, submenu_id)))
-            target_table = panel.find_element(By.TAG_NAME, "table")
-        except:
-            # IDで見つからない場合のフォールバック
-            target_table = wait.until(EC.presence_of_element_located(
-                (By.CSS_SELECTOR, f"div.{submenu_id} table, .active table")
-            ))
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table.liveTable tbody tr td")))
+        tables = driver.find_elements(By.CSS_SELECTOR, "table.liveTable")
+        
+        target_table = None
+        for table in tables:
+            if table.is_displayed():
+                target_table = table
+                break
 
-        if target_table is None: return
-
-        t_rows = target_table.find_elements(By.CSS_SELECTOR, "tbody tr")
-        for t_row in t_rows:
-            t_cols = t_row.find_elements(By.TAG_NAME, "td")
-            if len(t_cols) >= 2:
-                t_no = t_cols[0].text.strip()
-                if t_no in data_map:
-                    for key, idx in col_indices.items():
-                        data_map[t_no][key] = get_safe_text(t_cols, idx)
+        if target_table:
+            rows = target_table.find_elements(By.CSS_SELECTOR, "tbody tr")
+            for row in rows:
+                cols = row.find_elements(By.TAG_NAME, "td")
+                if len(cols) >= 2:
+                    car_no = cols[0].text.strip()
+                    if car_no in data_map:
+                        for key, idx in col_indices.items():
+                            data_map[car_no][key] = get_safe_text(cols, idx)
     except Exception as e:
-        if label:
-            print(f"      [スキップ] {label}", flush=True)
+        if label: print(f"      [スキップ] {label}", flush=True)
 
 def main():
     if not os.path.exists("data"): os.makedirs("data")
@@ -109,14 +125,10 @@ def main():
 
             for r in range(1, 13):
                 try:
-                    # レース番号タブが存在するか確認
                     race_tab_xpath = f"//*[@data-raceno='{r}']"
                     race_tabs = driver.find_elements(By.XPATH, race_tab_xpath)
-                    if not race_tabs:
-                        print(f"  => {r}Rのタブが見つからないため、{place}の取得を終了します。", flush=True)
-                        break
+                    if not race_tabs: break
 
-                    # 2レース目以降は、まずレース番号タブをクリック
                     if r > 1:
                         driver.execute_script("arguments[0].click();", race_tabs[0])
                         time.sleep(random.uniform(2.5, 4.0))
@@ -126,40 +138,26 @@ def main():
                     print(f"\n  [{race_id}] 処理開始...", flush=True)
 
                     base_data = {str(i): {} for i in range(1, 9)}
-                    h_data = {"日付": "-", "グレード": "-", "レース名": "-", "距離": "-", "天候": "-", "気温": "-", "湿度": "-", "走路温度": "-", "走路状況": "-", "投票締切": "-", "発走予定": "-"}
                     
-                    try:
-                        info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
-                        if len(info_tables) >= 2:
-                            row1 = info_tables[0].find_elements(By.CSS_SELECTOR, "tbody tr td")
-                            if len(row1) >= 4:
-                                h_data["日付"], h_data["レース名"], h_data["距離"], h_data["天候"] = [row1[i].text.strip() for i in range(4)]
-                            row2 = info_tables[1].find_elements(By.CSS_SELECTOR, "tbody tr td")
-                            if len(row2) >= 4:
-                                h_data["気温"], h_data["湿度"], h_data["走路温度"], h_data["走路状況"] = [row2[i].text.strip() for i in range(4)]
-                        for car_no in base_data:
-                            base_data[car_no].update({"場所": place, "車": car_no, **h_data})
-                    except: pass
-
-                    # 2レース目以降は「出走表」を強制クリックしてリセット
                     fetch_tab_data_by_click(driver, wait, "program", base_data, {"選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
-                    fetch_tab_data_by_click(driver, wait, "recent10", base_data, {f"近10_{i}": i+1 for i in range(1, 11)}, "近10走")
+                    recent10_indices = {f"近10_{i}": i + 1 for i in range(1, 11)}
+                    fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_indices, "近10走")
                     
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
                     
-                    fetch_tab_data_by_click(driver, wait, "recent90", base_data,{"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "近90日")
+                    fetch_tab_data_by_click(driver, wait, "recent90", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_2連対率":7}, "近90日")
 
                     fetch_tab_data_by_click(driver, wait, "recent180", base_data,  {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "近180日")
 
                     fetch_tab_data_by_click(driver, wait, "recent365", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11}, "今年/通算")
 
                     df = pd.DataFrame(base_data.values())
-                    df['車'] = pd.to_numeric(df['車'], errors='coerce')
-                    df = df.sort_values("車").dropna(subset=['選手名'])
+                    df.insert(0, '場所', place)
+                    df.insert(1, 'レース番号', r)
                     df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
                     print(f"  => {race_id} 保存完了", flush=True)
 
