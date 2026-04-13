@@ -56,8 +56,8 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             print(f"      [待機] コンテナ '{container_id}' 内のテーブルを待機中...", flush=True)
             wait.until(EC.presence_of_element_located((By.ID, container_id)))
             
-            # テーブルの中身が読み込まれるまでランダムに待機（負荷軽減）
-            time.sleep(random.uniform(1.2, 2.0))
+            # テーブルの中身が読み込まれるまでランダムに待機（負荷軽減：提案に基づき1.5-2.5秒に調整）
+            time.sleep(random.uniform(1.5, 2.5))
 
         # ターゲットとなるコンテナを特定
         container = driver.find_element(By.ID, container_id)
