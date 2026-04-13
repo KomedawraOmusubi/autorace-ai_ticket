@@ -1,7 +1,7 @@
 name: 1-Morning-Data-Job
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
   build:
@@ -23,6 +23,11 @@ jobs:
       - name: Install dependencies
         run: pip install pandas selenium webdriver-manager pytz
 
+      - name: Clean old data
+        run: |
+          mkdir -p data
+          rm -f data/*.csv || true
+
       - name: Run Morning Job
         run: python morning_job.py
         env:
@@ -32,18 +37,18 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
+
           # 1. 履歴の強制リセット
           git fetch origin auto_ticket_v3
           git reset --soft origin/auto_ticket_v3
-          
+
           # 2. Pythonが今作った新しいCSVを優先的にGitに追加
           git add data/*.csv || true
-          
-          # 3. 今回作られなかった（＝古い）CSVだけを名簿から削除
-          # これにより、新旧の「混在」を防ぎつつ、今日のファイルを確実に残します
+
+          # 3. 今回作られなかった（＝古い）CSVを名簿（インデックス）から削除
+          # これにより、物理的に消えたファイルがGit上でも「削除」として扱われます
           git add -u data/*.csv || true
-          
+
           # 4. 変更があればコミットして強制プッシュ
           if ! git diff --cached --quiet; then
             git commit -m "Update data: $(date +'%Y-%m-%d %H:%M')"
