@@ -41,20 +41,24 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
         print(f"      [取得中] {label}...", flush=True)
     try:
         if submenu_id != "program" or force_click:
+            # タブをクリック
             xpath = f"//*[@data-program-submenu='{submenu_id}']"
-            tab_element = wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+            tab_element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
             driver.execute_script("arguments[0].click();", tab_element)
-            time.sleep(random.uniform(1.2, 1.8)) 
+            # テンプレートからテーブルが生成されるのを待つ
+            time.sleep(random.uniform(2.0, 3.0)) 
         
-        wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr td")) >= 2)
-        tables = driver.find_elements(By.CSS_SELECTOR, "table")
-        target_table = None
-        for table in tables:
-            if table.is_displayed():
-                rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
-                if len(rows) >= 5:
-                    target_table = table
-                    break
+        # クリックしたタブ(submenu_id)に対応するパネル内にあるテーブルを特定
+        # これにより、別タブ（出走表など）の古いテーブルを拾うのを防ぐ
+        try:
+            # 活性化しているパネル（idがsubmenu_idのもの）を優先的に探す
+            panel = wait.until(EC.presence_of_element_located((By.ID, submenu_id)))
+            target_table = panel.find_element(By.TAG_NAME, "table")
+        except:
+            # IDで見つからない場合のフォールバック
+            target_table = wait.until(EC.presence_of_element_located(
+                (By.CSS_SELECTOR, f"div.{submenu_id} table, .active table")
+            ))
 
         if target_table is None: return
 
@@ -105,7 +109,7 @@ def main():
 
             for r in range(1, 13):
                 try:
-                    # レース番号タブが存在するか確認（存在しなければその会場は終了）
+                    # レース番号タブが存在するか確認
                     race_tab_xpath = f"//*[@data-raceno='{r}']"
                     race_tabs = driver.find_elements(By.XPATH, race_tab_xpath)
                     if not race_tabs:
@@ -143,9 +147,6 @@ def main():
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, {f"近10_{i}": i+1 for i in range(1, 11)}, "近10走")
                     
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
-
-
-
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
@@ -153,8 +154,6 @@ def main():
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data,{"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "近90日")
 
                     fetch_tab_data_by_click(driver, wait, "recent180", base_data,  {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "近180日")
-
-
 
                     fetch_tab_data_by_click(driver, wait, "recent365", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11}, "今年/通算")
 
