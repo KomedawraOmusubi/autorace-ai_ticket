@@ -4,7 +4,6 @@ import datetime
 import pandas as pd
 import pytz
 import glob
-import random
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -33,50 +32,57 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
     if label:
         print(f"      >>> [処理開始] {label} (ID: {submenu_id})", flush=True)
     try:
-        # 初期化：混入防止
+        # 初期化：古いデータが混ざらないようにする
         for car_no in data_map:
             for key in col_indices.keys():
                 data_map[car_no][key] = "-"
 
-        # 画像に基づき、ターゲットコンテナのIDを特定
+        # 画像 に基づくコンテナID
         container_id = f"live-program-{submenu_id}-container"
 
         if submenu_id != "program" or force_click:
-            # タブをクリック
-            xpath = f"//*[@data-program-submenu='{submenu_id}']"
-            print(f"      [操作] タブをクリックします: {submenu_id}", flush=True)
-            target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-            driver.execute_script("arguments[0].click();", target_tab)
+            # タブ（中の a タグ）をクリック
+            xpath = f"//*[@data-program-submenu='{submenu_id}']//a"
+            print(f"      [操作] タブをクリック: {submenu_id}", flush=True)
+            try:
+                target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                driver.execute_script("arguments[0].click();", target_tab)
+            except:
+                # aタグがなければliを直接クリック
+                target_tab = driver.find_element(By.XPATH, f"//*[@data-program-submenu='{submenu_id}']")
+                driver.execute_script("arguments[0].click();", target_tab)
             
-            # コンテナが「表示」されるまで待機
-            print(f"      [待機] コンテナ '{container_id}' の出現を待っています...", flush=True)
-            wait.until(EC.visibility_of_element_located((By.ID, container_id)))
-            print(f"      [成功] {label} への表示切り替えを確認しました。", flush=True)
-            time.sleep(1.0) # 描画安定バッファ
+            # コンテナ内の「テーブル」が表示されるまで待機
+            print(f"      [待機] コンテナ '{container_id}' 内のテーブルを待機中...", flush=True)
+            wait.until(EC.presence_of_element_located((By.ID, container_id)))
+            
+            # テーブルの中身（tr）が読み込まれるまで少し待つ
+            time.sleep(1.5)
 
-        # コンテナ内のテーブルを特定
+        # ターゲットとなるコンテナを特定
         container = driver.find_element(By.ID, container_id)
+        # コンテナ内のテーブルを取得
         target_table = container.find_element(By.CSS_SELECTOR, "table.liveTable")
 
         if target_table:
-            print(f"      [出現] {label} 専用テーブルを特定。データを抽出します...", flush=True)
+            print(f"      [出現] テーブルを確認。データ抽出中...", flush=True)
             rows = target_table.find_elements(By.CSS_SELECTOR, "tbody tr")
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
                 if len(cols) >= 2:
                     car_no = cols[0].text.strip()
                     if car_no in data_map:
-                        # 空白セルを除外してリスト化
+                        # 改行や空白を除去してリスト化
                         clean_texts = [c.text.strip().replace("\n", " ") for c in cols if c.text.strip() != ""]
                         for key, idx in col_indices.items():
                             if idx < len(clean_texts):
                                 data_map[car_no][key] = clean_texts[idx]
-            print(f"      [完了] {label} のデータ取得に成功しました。", flush=True)
+            print(f"      [成功] {label} 取得完了。", flush=True)
         else:
-            print(f"      [失敗] コンテナ内にテーブルが見つかりません。", flush=True)
+            print(f"      [失敗] テーブルが見つかりませんでした。", flush=True)
 
     except Exception as e:
-        if label: print(f"      [エラー] {label} 取得失敗: {e}", flush=True)
+        if label: print(f"      [エラー] {label} 取得失敗: {str(e)}", flush=True)
 
 def main():
     if not os.path.exists("data"): os.makedirs("data")
@@ -89,7 +95,7 @@ def main():
     today_id = now_jst.strftime("%Y%m%d")
 
     driver = get_driver()
-    wait = WebDriverWait(driver, 15)
+    wait = WebDriverWait(driver, 20) # タイムアウトを少し長めに設定
 
     try:
         print(f"\n--- スクレイピング開始 ({today_str}) ---", flush=True)
@@ -107,11 +113,10 @@ def main():
         except:
             active_places = []
 
-        print(f"本日の開催場所: {active_places}", flush=True)
+        print(f"開催場所: {active_places}", flush=True)
 
         for place in active_places:
             first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
-            print(f"\n[移動] {place} のメインページを開きます...", flush=True)
             driver.get(first_url)
             time.sleep(4)
 
@@ -121,7 +126,7 @@ def main():
                     if not race_tabs: break
 
                     if r > 1:
-                        print(f"\n  [レース選択] {r}Rに切り替えます。", flush=True)
+                        print(f"\n  [操作] {r}Rに切り替え", flush=True)
                         driver.execute_script("arguments[0].click();", race_tabs[0])
                         time.sleep(3)
 
@@ -138,26 +143,18 @@ def main():
                     recent10_cols = {f"近10_{i}": i for i in range(1, 11)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
                     
-                    # --- コメントアウト領域 ---
-                    """
-                    # 良・湿・斑
-                    f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
-                    for sub_id in ["good5", "wet5", "han5"]:
-                        l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
-                        fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
-                    """
-
+                    # 保存
                     df = pd.DataFrame(base_data.values())
                     df.insert(0, '場所', place)
                     df.insert(1, 'レース番号', r)
                     df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
-                    print(f"  => {race_id} CSV保存完了。", flush=True)
+                    print(f"  => {race_id} 保存完了", flush=True)
 
                 except Exception as e:
                     print(f"  => {r}R 失敗: {e}", flush=True)
     finally:
         driver.quit()
-        print("\n全ての工程が終了しました。", flush=True)
+        print("\n全工程終了。", flush=True)
 
 if __name__ == "__main__":
     main()
