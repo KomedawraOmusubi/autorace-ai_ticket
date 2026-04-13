@@ -40,7 +40,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
         print(f"      [取得中] {label}...", flush=True)
     try:
         if submenu_id != "program" or force_click:
-            # 更新検知用の古いテキストを取得（一番左上の車番など）
+            # ★ 修正: 要素の書き換え判定用の古い値を取得
             old_val = ""
             try:
                 current_table = driver.find_element(By.CSS_SELECTOR, "table.liveTable")
@@ -53,7 +53,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
             driver.execute_script("arguments[0].click();", target_tab)
             
-            # 要素が書き換わる（テキストが変化する）まで待機
+            # ★ 修正: テキストが変化するまで待機するロジック
             def table_updated(d):
                 try:
                     new_table = d.find_element(By.CSS_SELECTOR, "table.liveTable")
@@ -66,8 +66,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             try:
                 WebDriverWait(driver, 7).until(table_updated)
             except:
-                # タイムアウトしても念のため少し待って続行
-                time.sleep(1.0)
+                time.sleep(1.5) # 失敗時は安全策として少し待機
         
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table.liveTable tbody tr td")))
         tables = driver.find_elements(By.CSS_SELECTOR, "table.liveTable")
@@ -85,8 +84,19 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                 if len(cols) >= 2:
                     car_no = cols[0].text.strip()
                     if car_no in data_map:
-                        for key, idx in col_indices.items():
-                            data_map[car_no][key] = get_safe_text(cols, idx)
+                        # ★ 修正: ズレ対策。空要素を除外したリストでインデックス管理
+                        row_texts = [c.text.strip().replace("\n", " ") for c in cols if c.text.strip() != ""]
+                        
+                        if submenu_id == "recent10":
+                            # 近10走用: 車番(0番目)を除いた1番目以降を割り当て
+                            for i in range(1, 11):
+                                key = f"近10_{i}"
+                                data_map[car_no][key] = row_texts[i] if i < len(row_texts) else "-"
+                        else:
+                            # 通常用（出走表など）
+                            for key, idx in col_indices.items():
+                                # get_safe_textの代わりに精査済みリストから取得
+                                data_map[car_no][key] = row_texts[idx] if idx < len(row_texts) else "-"
     except Exception as e:
         if label: print(f"      [スキップ] {label}", flush=True)
 
@@ -139,22 +149,30 @@ def main():
 
                     base_data = {str(i): {} for i in range(1, 9)}
                     
+                    # 出走表（基本情報）
                     fetch_tab_data_by_click(driver, wait, "program", base_data, {"選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
-                    recent10_indices = {f"近10_{i}": i + 1 for i in range(1, 11)}
+                    # 近10走
+                    recent10_indices = {f"近10_{i}": i for i in range(1, 11)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_indices, "近10走")
                     
+                    # --- 以降、要望によりコメントアウト ---
+                    """
+                    # 良・湿・斑
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
                     
+                    # 近90日
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_2連対率":7}, "近90日")
 
                     fetch_tab_data_by_click(driver, wait, "recent180", base_data,  {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "近180日")
 
                     fetch_tab_data_by_click(driver, wait, "recent365", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11}, "今年/通算")
+                    """
 
+                    # 保存
                     df = pd.DataFrame(base_data.values())
                     df.insert(0, '場所', place)
                     df.insert(1, 'レース番号', r)
