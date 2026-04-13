@@ -26,11 +26,8 @@ def get_driver():
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)')
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
-    
-    # 画像読み込み無効化
     options.add_argument('--blink-settings=imagesEnabled=false')
     options.add_experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
-
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
 def get_safe_text(cols, idx):
@@ -39,21 +36,16 @@ def get_safe_text(cols, idx):
         return val if val and val != "" and val != "." else "-"
     return "-"
 
-def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, label=""):
+def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, label="", force_click=False):
     if label:
         print(f"      [取得中] {label}...", flush=True)
     try:
-        # --- 出走表(program)は初期表示されているためクリックをスキップする ---
-        if submenu_id != "program":
-            # 画像ソースから判明した data-program-submenu 属性を直接狙う
+        if submenu_id != "program" or force_click:
             xpath = f"//*[@data-program-submenu='{submenu_id}']"
             tab_element = wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
             driver.execute_script("arguments[0].click();", tab_element)
-            
-            # タブ切り替え後のランダムスリープ
-            time.sleep(random.uniform(1.2, 2.0)) 
+            time.sleep(random.uniform(1.2, 1.8)) 
         
-        # テーブルの取得ロジック
         wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr td")) >= 2)
         tables = driver.find_elements(By.CSS_SELECTOR, "table")
         target_table = None
@@ -76,7 +68,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                         data_map[t_no][key] = get_safe_text(t_cols, idx)
     except Exception as e:
         if label:
-            print(f"      [スキップ] {label} (クリック失敗またはデータなし)", flush=True)
+            print(f"      [スキップ] {label}", flush=True)
 
 def main():
     if not os.path.exists("data"): os.makedirs("data")
@@ -95,9 +87,8 @@ def main():
         driver.get("https://autorace.jp/")
         time.sleep(random.uniform(2.5, 4.0))
         
-        active_places = []
         place_map = {"川口": "kawaguchi", "山陽": "sanyou", "飯塚": "iizuka", "浜松": "hamamatsu", "伊勢崎": "isesaki"}
-
+        active_places = []
         try:
             wait.until(EC.presence_of_element_located((By.CLASS_NAME, "todayRaceSection")))
             page_text = driver.find_element(By.CLASS_NAME, "todayRaceSection").text
@@ -108,28 +99,33 @@ def main():
             active_places = ["kawaguchi", "sanyou", "iizuka", "hamamatsu", "isesaki"]
 
         for place in active_places:
+            first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
+            driver.get(first_url)
+            time.sleep(random.uniform(3.0, 5.0))
+
             for r in range(1, 13):
                 try:
+                    # レース番号タブが存在するか確認（存在しなければその会場は終了）
+                    race_tab_xpath = f"//*[@data-raceno='{r}']"
+                    race_tabs = driver.find_elements(By.XPATH, race_tab_xpath)
+                    if not race_tabs:
+                        print(f"  => {r}Rのタブが見つからないため、{place}の取得を終了します。", flush=True)
+                        break
+
+                    # 2レース目以降は、まずレース番号タブをクリック
+                    if r > 1:
+                        driver.execute_script("arguments[0].click();", race_tabs[0])
+                        time.sleep(random.uniform(2.5, 4.0))
+
                     race_no_str = str(r).zfill(2)
                     race_id = f"{today_id}_{place}_{race_no_str}"
-                    base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}"
-
-                    driver.get(base_url + "/program")
-                    time.sleep(random.uniform(2.0, 3.5))
-
-                    rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
-                    if len(rows) < 5: break 
-
                     print(f"\n  [{race_id}] 処理開始...", flush=True)
+
                     base_data = {str(i): {} for i in range(1, 9)}
-                    
                     h_data = {"日付": "-", "グレード": "-", "レース名": "-", "距離": "-", "天候": "-", "気温": "-", "湿度": "-", "走路温度": "-", "走路状況": "-", "投票締切": "-", "発走予定": "-"}
+                    
                     try:
                         info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
-                        try:
-                            grade_elem = driver.find_element(By.CSS_SELECTOR, ".race-infoWrap h3")
-                            h_data["グレード"] = grade_elem.text.strip().replace("\n", " ")
-                        except: pass
                         if len(info_tables) >= 2:
                             row1 = info_tables[0].find_elements(By.CSS_SELECTOR, "tbody tr td")
                             if len(row1) >= 4:
@@ -137,31 +133,30 @@ def main():
                             row2 = info_tables[1].find_elements(By.CSS_SELECTOR, "tbody tr td")
                             if len(row2) >= 4:
                                 h_data["気温"], h_data["湿度"], h_data["走路温度"], h_data["走路状況"] = [row2[i].text.strip() for i in range(4)]
-                        try:
-                            deadline = driver.find_element(By.XPATH, "//*[contains(text(), '投票締切')]/following-sibling::* | //*[contains(text(), '投票締切')]/parent::*/following-sibling::*").text
-                            plan = driver.find_element(By.XPATH, "//*[contains(text(), '発走予定')]/following-sibling::* | //*[contains(text(), '発走予定')]/parent::*/following-sibling::*").text
-                            h_data["投票締切"], h_data["発走予定"] = deadline.strip(), plan.strip()
-                        except: pass
                         for car_no in base_data:
                             base_data[car_no].update({"場所": place, "車": car_no, **h_data})
                     except: pass
 
-                    # 1. 出走表
-                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表")
+                    # 2レース目以降は「出走表」を強制クリックしてリセット
+                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
-                    # 2. 近10走
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, {f"近10_{i}": i+1 for i in range(1, 11)}, "近10走")
                     
-                    # 3. 走路別5走 (good5=良, wet5=湿, han5=斑)
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
+
+
+
                     for sub_id in ["good5", "wet5", "han5"]:
-                        label_name = "良5走" if sub_id=="good5" else "湿5走" if sub_id=="wet5" else "斑5走"
-                        fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{label_name}_{k}":v for k,v in f_map.items()}, label_name)
+                        l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
+                        fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
                     
-                    # 4. 期間別 (recent90=90日, recent180=180日, recent365=年間)
-                    fetch_tab_data_by_click(driver, wait, "recent90", base_data, {"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "近90日")
-                    fetch_tab_data_by_click(driver, wait, "recent180", base_data, {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "近180日")
-                    fetch_tab_data_by_click(driver, wait, "recent365", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10}, "今年/通算")
+                    fetch_tab_data_by_click(driver, wait, "recent90", base_data,{"90出走":2, "90優出":3, "90優勝":4, "90平均ST":5, "90(近10)_各着順":6, "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, "90(良10)平均競":10, "90(良10)最高競T(場)":11}, "近90日")
+
+                    fetch_tab_data_by_click(driver, wait, "recent180", base_data,  {"180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7}, "近180日")
+
+
+
+                    fetch_tab_data_by_click(driver, wait, "recent365", base_data, {"今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11}, "今年/通算")
 
                     df = pd.DataFrame(base_data.values())
                     df['車'] = pd.to_numeric(df['車'], errors='coerce')
