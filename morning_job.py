@@ -4,6 +4,7 @@ import datetime
 import pandas as pd
 import pytz
 import glob
+import random  # ランダム待機用に追加
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -37,18 +38,17 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             for key in col_indices.keys():
                 data_map[car_no][key] = "-"
 
-        # 画像 に基づくコンテナID
+        # コンテナID
         container_id = f"live-program-{submenu_id}-container"
 
         if submenu_id != "program" or force_click:
-            # タブ（中の a タグ）をクリック
+            # タブをクリック
             xpath = f"//*[@data-program-submenu='{submenu_id}']//a"
             print(f"      [操作] タブをクリック: {submenu_id}", flush=True)
             try:
                 target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
                 driver.execute_script("arguments[0].click();", target_tab)
             except:
-                # aタグがなければliを直接クリック
                 target_tab = driver.find_element(By.XPATH, f"//*[@data-program-submenu='{submenu_id}']")
                 driver.execute_script("arguments[0].click();", target_tab)
             
@@ -56,23 +56,20 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             print(f"      [待機] コンテナ '{container_id}' 内のテーブルを待機中...", flush=True)
             wait.until(EC.presence_of_element_located((By.ID, container_id)))
             
-            # テーブルの中身（tr）が読み込まれるまで少し待つ
-            time.sleep(1.5)
+            # テーブルの中身が読み込まれるまでランダムに待機（負荷軽減）
+            time.sleep(random.uniform(1.2, 2.0))
 
         # ターゲットとなるコンテナを特定
         container = driver.find_element(By.ID, container_id)
-        # コンテナ内のテーブルを取得
         target_table = container.find_element(By.CSS_SELECTOR, "table.liveTable")
 
         if target_table:
-            print(f"      [出現] テーブルを確認。データ抽出中...", flush=True)
             rows = target_table.find_elements(By.CSS_SELECTOR, "tbody tr")
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
                 if len(cols) >= 2:
                     car_no = cols[0].text.strip()
                     if car_no in data_map:
-                        # 改行や空白を除去してリスト化
                         clean_texts = [c.text.strip().replace("\n", " ") for c in cols if c.text.strip() != ""]
                         for key, idx in col_indices.items():
                             if idx < len(clean_texts):
@@ -95,7 +92,7 @@ def main():
     today_id = now_jst.strftime("%Y%m%d")
 
     driver = get_driver()
-    wait = WebDriverWait(driver, 20) # タイムアウトを少し長めに設定
+    wait = WebDriverWait(driver, 20)
 
     try:
         print(f"\n--- スクレイピング開始 ({today_str}) ---", flush=True)
@@ -128,7 +125,7 @@ def main():
                     if r > 1:
                         print(f"\n  [操作] {r}Rに切り替え", flush=True)
                         driver.execute_script("arguments[0].click();", race_tabs[0])
-                        time.sleep(3)
+                        time.sleep(random.uniform(2.5, 4.0)) # レース切り替えも少し長めに待機
 
                     race_no_str = str(r).zfill(2)
                     race_id = f"{today_id}_{place}_{race_no_str}"
@@ -139,22 +136,50 @@ def main():
                     # 出走表
                     fetch_tab_data_by_click(driver, wait, "program", base_data, {"選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
-                    # 近10走
-                    recent10_cols = {f"近10_{i}": i for i in range(1, 11)}
+                    # 近10走: インデックスを 2〜11（10走分）に修正
+                    recent10_cols = {f"近10_{i-1}": i for i in range(2, 12)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
                     
+                    # 良・湿・斑
+                    f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
+                    for sub_id in ["good5", "wet5", "han5"]:
+                        l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
+                        fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
+                    
+                    # 近90日: ラベル名を追加
+                    fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
+                        "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,"90(近10)_各着順":6, 
+                        "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, 
+                        "90(良10)平均競":10, "90(良10)最高競T(場)":11
+                    }, "近90日")
+
+                    # 近180日
+                    fetch_tab_data_by_click(driver, wait, "recent180", base_data, {
+                        "180良_2連対率":2, "180良_連対回数":3, "180良_出走数":4, 
+                        "180湿_2連対率":5, "180湿_連対回数":6, "180湿_出走数":7
+                    }, "近180日")
+
+                    # 今年/通算
+                    fetch_tab_data_by_click(driver, wait, "recent365", base_data, {
+                        "今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, 
+                        "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11
+                    }, "今年/通算")
+
                     # 保存
                     df = pd.DataFrame(base_data.values())
                     df.insert(0, '場所', place)
                     df.insert(1, 'レース番号', r)
                     df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
-                    print(f"  => {race_id} 保存完了", flush=True)
+                    print(f"  => {race_id} 保存完了。次の処理まで少し休みます...", flush=True)
+                    
+                    # レース終了ごとにランダム休憩（負荷軽減）
+                    time.sleep(random.uniform(2.0, 5.0))
 
                 except Exception as e:
                     print(f"  => {r}R 失敗: {e}", flush=True)
     finally:
         driver.quit()
-        print("\n全工程終了。", flush=True)
+        print("\n全工程終了。お疲れ様でした。", flush=True)
 
 if __name__ == "__main__":
     main()
