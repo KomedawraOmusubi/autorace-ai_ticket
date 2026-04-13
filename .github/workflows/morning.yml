@@ -34,8 +34,8 @@ jobs:
           git config --local user.name "GitHub Action"
           
           # 1. 履歴の強制リセット
-          git fetch origin auto_ticket_v2_1
-          git reset --soft origin/auto_ticket_v2_1
+          git fetch origin auto_ticket_v3
+          git reset --soft origin/auto_ticket_v3
           
           # 2. Pythonが今作った新しいCSVを優先的にGitに追加
           git add data/*.csv || true
@@ -47,7 +47,7 @@ jobs:
           # 4. 変更があればコミットして強制プッシュ
           if ! git diff --cached --quiet; then
             git commit -m "Update data: $(date +'%Y-%m-%d %H:%M')"
-            git push -f origin auto_ticket_v2_1
+            git push -f origin auto_ticket_v3
           else
             echo "No CSV changes detected."
           fi
