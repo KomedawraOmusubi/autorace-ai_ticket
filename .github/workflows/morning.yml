@@ -1,4 +1,4 @@
-name: 1-Morning-Data-Job
+Name: 1-Morning-Data-Job
 
 on:
   workflow_dispatch:
@@ -42,18 +42,13 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-          # ブランチ同期
-          git fetch origin auto_ticket_v3.0.1
-          git checkout auto_ticket_v3 || git checkout -b auto_ticket_v3.0.1
-          git reset --hard origin auto_ticket_v3.0.1
-
-          # CSVをすべて反映（削除含む）
+          # 変更をすべてステージ
           git add -A data/*.csv || true
 
-          # 差分があればコミット＆プッシュ
+          # 差分があればコミットして実行中のブランチにプッシュ
           if ! git diff --cached --quiet; then
             git commit -m "Update data: $(date +'%Y-%m-%d %H:%M')"
-            git push -f origin auto_ticket_v3.0.1
+            git push origin HEAD:${{ github.ref }}
           else
             echo "No CSV changes detected."
           fi
