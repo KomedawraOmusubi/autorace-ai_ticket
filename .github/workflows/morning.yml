@@ -39,18 +39,17 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-          # ブランチ同期
+          # 正しいブランチを取得＆同期
           git fetch origin auto_ticket_v3.0.1
-          git checkout auto_ticket_v3 || git checkout -b auto_ticket_v3.0.1
-          git reset --hard origin auto_ticket_v3.0.1
+          git checkout -B auto_ticket_v3.0.1 origin/auto_ticket_v3.0.1
 
           # CSVをすべて反映（削除含む）
-          git add -A data/*.csv || true
+          git add -A data/
 
-          # 差分があればコミットして実行中のブランチにプッシュ
+          # 差分があればコミット＆push
           if ! git diff --cached --quiet; then
             git commit -m "Update data: $(date +'%Y-%m-%d %H:%M')"
-            git push origin HEAD:${{ github.ref }}
+            git push origin auto_ticket_v3.0.1
           else
             echo "No CSV changes detected."
           fi
