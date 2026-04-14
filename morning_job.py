@@ -5,6 +5,7 @@ import pandas as pd
 import pytz
 import glob
 import random
+import re
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -40,7 +41,6 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
     if label:
         print(f"      >>> [処理開始] {label} (ID: {submenu_id})", flush=True)
     try:
-        # 初期化（この関数で取得するキーのみハイフンで埋める）
         for car_no in data_map:
             for key in col_indices.keys():
                 data_map[car_no][key] = "-"
@@ -49,7 +49,6 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
 
         if submenu_id != "program" or force_click:
             xpath = f"//*[@data-program-submenu='{submenu_id}']//a"
-            print(f"      [操作] タブをクリック: {submenu_id}", flush=True)
             try:
                 target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
                 driver.execute_script("arguments[0].click();", target_tab)
@@ -70,19 +69,14 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                 if len(cols) >= 2:
                     car_no = cols[0].text.strip()
                     if car_no in data_map:
-                        # 全てのtdを取得。選手名セルの改行を保持するため、ここではreplace("\n", " ")をしない
                         for key, idx in col_indices.items():
                             if idx < len(cols):
-                                # keyが「_raw_info」の場合は改行を保持し、それ以外は1行にまとめる
                                 val = cols[idx].text.strip()
+                                # programの選手名列（1）だけは改行を保持
                                 if key != "_raw_info":
                                     val = val.replace("\n", " ")
                                 data_map[car_no][key] = val
-
             print(f"      [成功] {label} 取得完了。", flush=True)
-        else:
-            print(f"      [失敗] テーブルが見つかりませんでした。", flush=True)
-
     except Exception as e:
         if label: print(f"      [エラー] {label} 取得失敗: {str(e)}", flush=True)
 
@@ -115,8 +109,6 @@ def main():
         except:
             active_places = []
 
-        print(f"開催場所: {active_places}", flush=True)
-
         for place in active_places:
             first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(first_url)
@@ -128,7 +120,6 @@ def main():
                     if not race_tabs: break
 
                     if r > 1:
-                        print(f"\n  [操作] {r}Rに切り替え", flush=True)
                         driver.execute_script("arguments[0].click();", race_tabs[0])
                         time.sleep(random.uniform(3.5, 6.0))
 
@@ -138,32 +129,39 @@ def main():
 
                     base_data = {str(i): {} for i in range(1, 9)}
                     
-                    # 1. 出走表（program）取得。選手名列（1）を一時的に _raw_info として保持
+                    # 出走表取得
                     fetch_tab_data_by_click(driver, wait, "program", base_data, 
                                             {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, 
                                             "出走表", force_click=(r > 1))
                     
-                    # 2. 選手名情報の分割処理
+                    # --- 選手情報分割ロジック修正 ---
                     for car_no, row_data in base_data.items():
                         raw_text = row_data.get("_raw_info", "")
                         p_name, p_car, p_loc, p_gen, p_age, p_class, p_rank = ["-"] * 7
                         
                         if raw_text and raw_text != "-":
+                            # 空行を除去してリスト化
                             lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
-                            if len(lines) >= 1: p_name = lines[0]
-                            if len(lines) >= 2: p_car  = lines[1]
+                            
+                            if len(lines) >= 1: p_name = lines[0] # 選手名
+                            if len(lines) >= 2: p_car  = lines[1] # 競走車
+                            
+                            # 所属と期（例: "飯塚 27期"）を分割
                             if len(lines) >= 3:
-                                parts = lines[2].split("/")
-                                if len(parts) >= 1: p_loc = parts[0].strip()
-                                if len(parts) >= 2: p_gen = parts[1].strip()
-                                if len(parts) >= 3: p_age = parts[2].strip()
+                                loc_gen = lines[2]
+                                # スペースや特定の文字で分割を試みる
+                                parts = re.split(r'\s+', loc_gen)
+                                p_loc = parts[0] if len(parts) >= 1 else "-"
+                                p_gen = parts[1] if len(parts) >= 2 else "-"
+                            
+                            # 年齢・車級・ランク（例: "46歳 1級 B-96"）を分割
                             if len(lines) >= 4:
-                                rank_info = lines[3]
-                                p_rank = rank_info.split("(")[0].strip()
-                                if "(" in rank_info:
-                                    p_class = rank_info.split("(")[1].replace(")", "").strip()
+                                details = lines[3]
+                                parts = re.split(r'\s+', details)
+                                p_age   = parts[0] if len(parts) >= 1 else "-"
+                                p_class = parts[1] if len(parts) >= 2 else "-"
+                                p_rank  = parts[2] if len(parts) >= 3 else "-"
 
-                        # 分割したデータを格納
                         row_data["選手名"] = p_name
                         row_data["競走車"] = p_car
                         row_data["所属"]   = p_loc
@@ -173,7 +171,7 @@ def main():
                         row_data["ランク"] = p_rank
                         if "_raw_info" in row_data: del row_data["_raw_info"]
 
-                    # 3. 他のタブのデータを取得
+                    # 3. 他のタブのデータ取得
                     recent10_cols = {f"近10_{i-1}": i for i in range(2, 12)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
                     
@@ -198,10 +196,7 @@ def main():
                         "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10
                     }, "今年/通算")
 
-                    # 4. DataFrame作成と列順の整理
                     df = pd.DataFrame(base_data.values())
-                    
-                    # 指示通りの順番でカラムを固定
                     fixed_cols = ["車", "選手名", "競走車", "所属", "期", "年齢", "車級", "ランク", "ハンデ", "試走T", "偏差", "連率"]
                     other_cols = [c for c in df.columns if c not in fixed_cols]
                     df = df[fixed_cols + other_cols]
@@ -211,14 +206,13 @@ def main():
                     
                     df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
                     print(f"  => {race_id} 保存完了。", flush=True)
-                    
                     time.sleep(random.uniform(5.0, 10.0))
 
                 except Exception as e:
                     print(f"  => {r}R 失敗: {e}", flush=True)
     finally:
         driver.quit()
-        print("\n全工程終了。お疲れ様でした。", flush=True)
+        print("\n全工程終了。", flush=True)
 
 if __name__ == "__main__":
     main()
