@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
 
@@ -20,8 +21,11 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+
       - name: Install dependencies
-        run: pip install pandas selenium webdriver-manager pytz
+        run: pip install pandas==2.2.2 selenium==4.21.0 webdriver-manager==4.0.1 pytz
 
       - name: Clean old data
         run: |
@@ -38,18 +42,15 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-          # 1. 履歴の強制リセット
+          # ブランチ同期
           git fetch origin auto_ticket_v3.0.1
-          git reset --soft origin/auto_ticket_v3.0.1
+          git checkout auto_ticket_v3 || git checkout -b auto_ticket_v3.0.1
+          git reset --hard origin auto_ticket_v3.0.1
 
-          # 2. Pythonが今作った新しいCSVを優先的にGitに追加
-          git add data/*.csv || true
+          # CSVをすべて反映（削除含む）
+          git add -A data/*.csv || true
 
-          # 3. 今回作られなかった（＝古い）CSVを名簿（インデックス）から削除
-          # これにより、物理的に消えたファイルがGit上でも「削除」として扱われます
-          git add -u data/*.csv || true
-
-          # 4. 変更があればコミットして強制プッシュ
+          # 差分があればコミット＆プッシュ
           if ! git diff --cached --quiet; then
             git commit -m "Update data: $(date +'%Y-%m-%d %H:%M')"
             git push -f origin auto_ticket_v3.0.1
