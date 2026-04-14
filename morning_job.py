@@ -17,16 +17,13 @@ TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
 def get_driver():
     options = Options()
-    # 【修正箇所：3】ヘッドレスモードを最新の記述に変更
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     options.add_argument('--lang=ja-JP')
-    # 最新のブラウザに近いUser-Agentに更新
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
     
-    # 【WAF対策：2の修正】自動操作フラグを隠す
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
@@ -35,8 +32,6 @@ def get_driver():
     options.add_experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    
-    # 【WAF対策：2の修正】JavaScriptでwebdriverフラグをさらに隠蔽
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     
     return driver
@@ -45,9 +40,14 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
     if label:
         print(f"      >>> [処理開始] {label} (ID: {submenu_id})", flush=True)
     try:
+        # 初期化（分割項目も考慮）
+        split_keys = ["選手名", "競走車名", "所属", "期", "年齢", "級", "ランク"]
         for car_no in data_map:
             for key in col_indices.keys():
                 data_map[car_no][key] = "-"
+            if submenu_id == "program":
+                for sk in split_keys:
+                    data_map[car_no][sk] = "-"
 
         container_id = f"live-program-{submenu_id}-container"
 
@@ -62,8 +62,6 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                 driver.execute_script("arguments[0].click();", target_tab)
             
             wait.until(EC.presence_of_element_located((By.ID, container_id)))
-            
-            # 【WAF対策：1の修正】待機時間を少し長めに、かつバラつかせる
             time.sleep(random.uniform(2.0, 4.0))
 
         container = driver.find_element(By.ID, container_id)
@@ -76,10 +74,23 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                 if len(cols) >= 2:
                     car_no = cols[0].text.strip()
                     if car_no in data_map:
-                        clean_texts = [c.text.strip().replace("\n", " ") for c in cols if c.text.strip() != ""]
+                        # 全てのtdを順番通りに取得（空セルも保持）
+                        clean_texts = [c.text.strip().replace("\n", " ") for c in cols]
+                        
                         for key, idx in col_indices.items():
                             if idx < len(clean_texts):
-                                data_map[car_no][key] = clean_texts[idx]
+                                val = clean_texts[idx]
+                                
+                                # 「選手名」列（インデックス1）の場合のみ分割処理を行う
+                                if submenu_id == "program" and idx == 1:
+                                    parts = val.split() # 空白で分割
+                                    # [選手名, 競走車, 所属, 期, 年齢, 車級, ランク] の順を想定
+                                    for i, sk in enumerate(split_keys):
+                                        if i < len(parts):
+                                            data_map[car_no][sk] = parts[i]
+                                else:
+                                    data_map[car_no][key] = val
+
             print(f"      [成功] {label} 取得完了。", flush=True)
         else:
             print(f"      [失敗] テーブルが見つかりませんでした。", flush=True)
@@ -131,7 +142,6 @@ def main():
                     if r > 1:
                         print(f"\n  [操作] {r}Rに切り替え", flush=True)
                         driver.execute_script("arguments[0].click();", race_tabs[0])
-                        # レース切り替え待機も少し長めに設定
                         time.sleep(random.uniform(3.5, 6.0))
 
                     race_no_str = str(r).zfill(2)
@@ -140,7 +150,8 @@ def main():
 
                     base_data = {str(i): {} for i in range(1, 9)}
                     
-                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0,"選手名":1 , "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
+                    # 出走表（program）取得。選手名の分割は関数内で実施
+                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
                     recent10_cols = {f"近10_{i-1}": i for i in range(2, 12)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
@@ -169,10 +180,11 @@ def main():
                     df = pd.DataFrame(base_data.values())
                     df.insert(0, '場所', place)
                     df.insert(1, 'レース番号', r)
-                    df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
-                    print(f"  => {race_id} 保存完了。次のレースまでしっかり休みます...", flush=True)
                     
-                    # レース終了ごとの休憩を長めに設定（スパイク防止）
+                    # カラムの並び順を整理（任意）
+                    df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
+                    print(f"  => {race_id} 保存完了。", flush=True)
+                    
                     time.sleep(random.uniform(5.0, 10.0))
 
                 except Exception as e:
