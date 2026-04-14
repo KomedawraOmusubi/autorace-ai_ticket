@@ -140,7 +140,7 @@ def main():
 
                     base_data = {str(i): {} for i in range(1, 9)}
                     
-                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"選手名": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
+                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 1,"選手名":2 , "ハンデ": 3, "試走T": 4, "偏差": 5, "連率": 6}, "出走表", force_click=(r > 1))
                     
                     recent10_cols = {f"近10_{i-1}": i for i in range(2, 12)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
