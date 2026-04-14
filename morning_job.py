@@ -41,7 +41,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
         print(f"      >>> [処理開始] {label} (ID: {submenu_id})", flush=True)
     try:
         # 初期化（分割項目も考慮）
-        split_keys = ["選手名", "競走車", "所属", "期", "年齢", "車級", "ランク"]
+        split_keys = ["選手名", "競走車名", "所属", "期", "年齢", "級", "ランク"]
         for car_no in data_map:
             for key in col_indices.keys():
                 data_map[car_no][key] = "-"
@@ -55,8 +55,6 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             xpath = f"//*[@data-program-submenu='{submenu_id}']//a"
             print(f"      [操作] タブをクリック: {submenu_id}", flush=True)
             try:
-                target_tab = wait.until(EC.element_to_be_clickable((By.ID, submenu_id))) # By.XPATH への修正が必要な場合は元のロジックに依存
-                # ※ 元のコードの XPATH 選択ロジックを優先
                 target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
                 driver.execute_script("arguments[0].click();", target_tab)
             except:
@@ -136,9 +134,6 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            
-            #取得レースを調整(テスト用)
-            
             for r in range(1, 2):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
@@ -178,8 +173,8 @@ def main():
                     }, "近180日")
 
                     fetch_tab_data_by_click(driver, wait, "recent365", base_data, {
-                        "今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, 
-                        "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10
+                        "今年_優出":2, "今年_優勝":3, "通算_優勝":5, "通算_1着":6, 
+                        "通算_2着":7, "通算_3着":8, "通算_単勝率":9, "通算_2連対率":10, "通算_3連対率":11
                     }, "今年/通算")
 
                     df = pd.DataFrame(base_data.values())
