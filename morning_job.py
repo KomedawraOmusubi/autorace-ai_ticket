@@ -41,7 +41,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
         print(f"      >>> [処理開始] {label} (ID: {submenu_id})", flush=True)
     try:
         # 初期化（分割項目も考慮）
-        split_keys = ["選手名", "競走車名", "所属", "期", "年齢", "級", "ランク"]
+        split_keys = ["選手名", "競走車", "所属", "期", "年齢", "車級", "ランク"]
         for car_no in data_map:
             for key in col_indices.keys():
                 data_map[car_no][key] = "-"
