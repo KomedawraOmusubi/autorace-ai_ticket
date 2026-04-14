@@ -5,6 +5,7 @@ import pandas as pd
 import pytz
 import glob
 import random
+import re  # ← ★追加
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -83,8 +84,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                                 
                                 # 「選手名」列（インデックス1）の場合のみ分割処理を行う
                                 if submenu_id == "program" and idx == 1:
-                                    parts = val.split() # 空白で分割
-                                    # [選手名, 競走車, 所属, 期, 年齢, 車級, ランク] の順を想定
+                                    parts = re.split(r'[\s\u3000]+', val.strip())  # ← ★ここだけ修正
                                     for i, sk in enumerate(split_keys):
                                         if i < len(parts):
                                             data_map[car_no][sk] = parts[i]
@@ -150,12 +150,13 @@ def main():
 
                     base_data = {str(i): {} for i in range(1, 9)}
                     
-                    # 出走表（program）取得。選手名の分割は関数内で実施
                     fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
                     recent10_cols = {f"近10_{i-1}": i for i in range(2, 12)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
-                    
+
+
+                    """
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
@@ -177,11 +178,13 @@ def main():
                         "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10
                     }, "今年/通算")
 
+                    """
+
+                    
                     df = pd.DataFrame(base_data.values())
                     df.insert(0, '場所', place)
                     df.insert(1, 'レース番号', r)
                     
-                    # カラムの並び順を整理（任意）
                     df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
                     print(f"  => {race_id} 保存完了。", flush=True)
                     
