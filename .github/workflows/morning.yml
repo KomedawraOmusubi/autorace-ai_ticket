@@ -1,4 +1,4 @@
-name: 1-Morning-Data-Job
+Name: 1-Morning-Data-Job
 
 on:
   workflow_dispatch:
@@ -25,7 +25,7 @@ jobs:
         uses: browser-actions/setup-chrome@v1
 
       - name: Install dependencies
-        run: pip install pandas==2.2.2 selenium==4.21.0 webdriver-manager==4.0.1 pytz
+        run: pip install pandas==2.2.2 selenium==4.21.0 pytz
 
       - name: Clean old data
         run: |
