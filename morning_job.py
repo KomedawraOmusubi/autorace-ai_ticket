@@ -40,6 +40,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
     if label:
         print(f"      >>> [処理開始] {label} (ID: {submenu_id})", flush=True)
     try:
+        # 初期化（分割項目も考慮）
         split_keys = ["選手名", "競走車", "所属", "期", "年齢", "車級", "ランク"]
         for car_no in data_map:
             for key in col_indices.keys():
@@ -54,6 +55,8 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             xpath = f"//*[@data-program-submenu='{submenu_id}']//a"
             print(f"      [操作] タブをクリック: {submenu_id}", flush=True)
             try:
+                target_tab = wait.until(EC.element_to_be_clickable((By.ID, submenu_id))) # By.XPATH への修正が必要な場合は元のロジックに依存
+                # ※ 元のコードの XPATH 選択ロジックを優先
                 target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
                 driver.execute_script("arguments[0].click();", target_tab)
             except:
@@ -73,16 +76,17 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                 if len(cols) >= 2:
                     car_no = cols[0].text.strip()
                     if car_no in data_map:
+                        # 全てのtdを順番通りに取得（空セルも保持）
                         clean_texts = [c.text.strip().replace("\n", " ") for c in cols]
                         
                         for key, idx in col_indices.items():
                             if idx < len(clean_texts):
                                 val = clean_texts[idx]
                                 
+                                # 「選手名」列（インデックス1）の場合のみ分割処理を行う
                                 if submenu_id == "program" and idx == 1:
-                                    # 元のセルのテキスト（改行込み）を再度取得して分割を試みる
-                                    raw_val = cols[idx].text.strip()
-                                    parts = raw_val.split() 
+                                    parts = val.split() # 空白で分割
+                                    # [選手名, 競走車, 所属, 期, 年齢, 車級, ランク] の順を想定
                                     for i, sk in enumerate(split_keys):
                                         if i < len(parts):
                                             data_map[car_no][sk] = parts[i]
@@ -110,26 +114,46 @@ def main():
     wait = WebDriverWait(driver, 20)
 
     try:
-        print(f"\n--- テスト実行開始（川口1Rのみ） ({today_str}) ---", flush=True)
-        # テスト用に場所を川口に固定
-        active_places = ["kawaguchi"]
+        print(f"\n--- スクレイピング開始 ({today_str}) ---", flush=True)
+        driver.get("https://autorace.jp/")
+        time.sleep(3)
+        
+        place_map = {"川口": "kawaguchi", "山陽": "sanyou", "飯塚": "iizuka", "浜松": "hamamatsu", "伊勢崎": "isesaki"}
+        active_places = []
+        try:
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "todayRaceSection")))
+            page_text = driver.find_element(By.CLASS_NAME, "todayRaceSection").text
+            for jp_name, en_name in place_map.items():
+                if jp_name in page_text: active_places.append(en_name)
+            active_places = list(dict.fromkeys(active_places))
+        except:
+            active_places = []
+
+        print(f"開催場所: {active_places}", flush=True)
 
         for place in active_places:
-            # 1RのURLへ直接アクセス
             first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(first_url)
             time.sleep(4)
 
-            # range(1, 2) にして1Rのみ実行
-            for r in range(1, 2):
+            for r in range(1, 13):
                 try:
+                    race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
+                    if not race_tabs: break
+
+                    if r > 1:
+                        print(f"\n  [操作] {r}Rに切り替え", flush=True)
+                        driver.execute_script("arguments[0].click();", race_tabs[0])
+                        time.sleep(random.uniform(3.5, 6.0))
+
                     race_no_str = str(r).zfill(2)
                     race_id = f"{today_id}_{place}_{race_no_str}"
                     print(f"\n  ===[ {race_id} ]===", flush=True)
 
                     base_data = {str(i): {} for i in range(1, 9)}
                     
-                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表")
+                    # 出走表（program）取得。選手名の分割は関数内で実施
+                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
                     recent10_cols = {f"近10_{i-1}": i for i in range(2, 12)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
@@ -159,14 +183,17 @@ def main():
                     df.insert(0, '場所', place)
                     df.insert(1, 'レース番号', r)
                     
-                    df.to_csv(f"data/test_race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
-                    print(f"  => {race_id} テスト保存完了。CSVを確認してください。", flush=True)
+                    # カラムの並び順を整理（任意）
+                    df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
+                    print(f"  => {race_id} 保存完了。", flush=True)
+                    
+                    time.sleep(random.uniform(5.0, 10.0))
 
                 except Exception as e:
                     print(f"  => {r}R 失敗: {e}", flush=True)
     finally:
         driver.quit()
-        print("\nテスト終了。", flush=True)
+        print("\n全工程終了。お疲れ様でした。", flush=True)
 
 if __name__ == "__main__":
     main()
