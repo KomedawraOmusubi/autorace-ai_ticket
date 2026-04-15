@@ -149,7 +149,7 @@ def add_predictions(df):
             total_distance = 3100 + handi
             arrival_time = total_distance / v_sec
             
-            # 小数点第3位まで文字列として保持 (末尾0も表示)
+            # 小数点第3位まで文字列として保持 (末尾0)
             df.at[idx_row, col_time] = f"{agari_100m:.3f}"
             goal_arrival_times.append(round(arrival_time, 2))
 
@@ -210,18 +210,18 @@ def main():
                     race_id = f"{today_id}_{place}_{race_no_str}"
                     print(f"\n  ===[ {race_id} ]===", flush=True)
 
-                    # --- レース概要情報の取得 ---
+                    # --- レース概要情報の取得 (狙い撃ち) ---
                     grade_val, date_val, race_val, dist_val = ["-"] * 4
                     try:
-                        grade_elem = driver.find_element(By.CSS_SELECTOR, ".race-title-period")
-                        grade_val = grade_elem.text.replace("\n", " ").strip()
+                        # グレード・開催タイトル
+                        grade_val = driver.find_element(By.CLASS_NAME, "race-title-period").text.replace("\n", " ").strip()
                         
-                        info_table = driver.find_element(By.CSS_SELECTOR, "table.race-infoTable")
-                        info_cols = info_table.find_elements(By.TAG_NAME, "td")
-                        if len(info_cols) >= 3:
-                            date_val = info_cols[0].text.strip()
-                            race_val = info_cols[1].text.strip()
-                            dist_val = info_cols[2].text.strip()
+                        # table.race-infoTable の tbody 内から td を取得
+                        info_tds = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable tbody tr td")
+                        if len(info_tds) >= 3:
+                            date_val = info_tds[0].text.strip()
+                            race_val = info_tds[1].text.strip()
+                            dist_val = info_tds[2].text.strip()
                     except:
                         pass
 
@@ -284,7 +284,6 @@ def main():
                     ]
                     df = df[fixed_cols + [c for c in df.columns if c not in fixed_cols]]
                     
-                    # カラム挿入
                     df.insert(0, '場所', place)
                     df.insert(1, 'グレード', grade_val)
                     df.insert(2, '日付', date_val)
