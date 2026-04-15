@@ -197,7 +197,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(1, 2):
+            for r in range(1, 13):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -210,24 +210,27 @@ def main():
                     race_id = f"{today_id}_{place}_{race_no_str}"
                     print(f"\n  ===[ {race_id} ]===", flush=True)
 
-                    # --- レース概要情報の取得 (狙い撃ち修正) ---
+                    # --- レース概要情報の取得 (正確な振り分け) ---
                     grade_val, date_val, race_val, dist_val = ["-"] * 4
                     try:
-                        # 1. グレード・開催タイトルの取得 (HTML構造に基づきピンポイントで指定)
-                        # id="race-result-race-period-time" を含む親要素からテキストを抽出
+                        # 1. グレード・開催タイトルの取得
                         try:
-                            period_area = driver.find_element(By.CSS_SELECTOR, "#race-result-race-info")
-                            grade_val = period_area.text.replace("\n", " ").strip()
+                            title_elem = driver.find_element(By.CSS_SELECTOR, "#race-result-race-info h3")
+                            grade_val = title_elem.text.strip()
                         except:
-                            grade_val = driver.find_element(By.CLASS_NAME, "race-title-period").text.replace("\n", " ").strip()
+                            grade_val = driver.find_element(By.CLASS_NAME, "race-title-period").text.split("\n")[0].strip()
                         
-                        # 2. 日付・レース・距離の取得 (table.race-infoTable の 1つ目のテーブルの tbody 内 td)
-                        info_table = driver.find_element(By.CSS_SELECTOR, "table.race-infoTable")
-                        info_tds = info_table.find_elements(By.CSS_SELECTOR, "tbody tr td")
-                        if len(info_tds) >= 3:
-                            date_val = info_tds[0].text.strip()
-                            race_val = info_tds[1].text.strip()
-                            dist_val = info_tds[2].text.strip()
+                        # 2. infoTableが2つある構造に対応
+                        info_tables = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable")
+                        if len(info_tables) >= 1:
+                            # 1つ目のテーブル：日付、レース、距離、天候
+                            tds1 = info_tables[0].find_elements(By.CSS_SELECTOR, "tbody tr td")
+                            if len(tds1) >= 3:
+                                # 日付のみを抽出 (余計なspanを排除するため textContent 等を検討)
+                                raw_date = tds1[0].text.split("\n")
+                                date_val = raw_date[0].strip() if raw_date else "-"
+                                race_val = tds1[1].text.strip()
+                                dist_val = tds1[2].text.strip()
                     except Exception as e:
                         print(f"      [情報取得失敗] {e}")
 
