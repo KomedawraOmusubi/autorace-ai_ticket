@@ -97,7 +97,7 @@ def add_predictions(df):
         goal_arrival_times = []
         prefix = f"{condition}5"
         
-        for _, row in df.iterrows():
+        for idx_row, row in df.iterrows():
             car_no = str(row.get("車", ""))
             
             # --- 1. 仮想試走タイムの決定 ---
@@ -125,8 +125,9 @@ def add_predictions(df):
             total_distance = 3100 + handi
             arrival_time = total_distance / v_sec
             
-            # 数値の丸め処理
-            df.at[_, f'予想競走タイム({condition})'] = round(agari_100m, 3)
+            # 数値の丸め処理と代入（フォーマットを指定して確実に3位まで残す。末尾0も表示）
+            df.at[idx_row, f'予想競走タイム({condition})'] = f"{agari_100m:.3f}"
+            # 仮想ゴール時間も同様に2桁固定にしたい場合は f"{arrival_time:.2f}" に変更可能
             goal_arrival_times.append(round(arrival_time, 2))
 
         df[f'仮想ゴール時間({condition})'] = goal_arrival_times
