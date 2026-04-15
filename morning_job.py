@@ -67,8 +67,9 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
                 if len(cols) >= 2:
+                    # 修正箇所: 車番が数字であることを確認し、空行やヘッダーによるズレを防止
                     car_no = cols[0].text.strip()
-                    if car_no in data_map:
+                    if car_no.isdigit() and car_no in data_map:
                         for key, idx in col_indices.items():
                             if idx < len(cols):
                                 val = cols[idx].text.strip()
@@ -153,7 +154,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(1, 2):
+            for r in range(1, 13):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -237,15 +238,20 @@ def main():
                     }, "今年/通算")
                     """
 
-                    df = pd.DataFrame(base_data.values())
+                    # 選手名が取得できなかった（空行など）のデータを除外してDataFrame化
+                    valid_data = [v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"]
+                    if not valid_data:
+                        continue
+                        
+                    df = pd.DataFrame(valid_data)
                     
                     # 予想ロジック適用
                     df = add_predictions(df)
 
-                    fixed_cols = [
-                        "車", "選手名", "印_good", "予想着順_good", "予想競走タイム_good", 
-                        "印_wet", "予想着順_wet", "予想競走タイム_wet",
-                        "競走車", "所属", "期", "年齢", "車級", "ランク", "ハンデ", "試走T", "偏差", "連率"
+                    fixed_cols = ["前日印(良走路)","前日印(湿走路)"
+                        "車", "選手名", 
+                        "競走車", "所属", "期", "年齢", "車級", "ランク", "ハンデ", "試走T", "偏差", "連率",, "前日予想着順(良走路)", "前日予想競走タイム(良走路)", 
+                         "前日予想着順(湿走路)", "前日予想競走タイム(湿走路)"
                     ]
                     other_cols = [c for c in df.columns if c not in fixed_cols]
                     df = df[fixed_cols + other_cols]
