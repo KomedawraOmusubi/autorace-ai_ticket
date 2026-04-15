@@ -41,7 +41,7 @@ jobs:
 
           # 正しいブランチを取得＆同期
           git fetch origin auto_ticket_v3.1.1
-          git checkout -B auto_ticket_v3.1.1 origin/auto_ticket_v3.0.1
+          git checkout -B auto_ticket_v3.1.1 origin/auto_ticket_v3.1.1
 
           # CSVをすべて反映（削除含む）
           git add -A data/
