@@ -176,15 +176,27 @@ def main():
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
 
 
-                    
-                    
+
+  f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
+                    for sub_id in ["good5", "wet5"]:
+                        l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" 
+                      fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
+
+
+                 
+#負荷軽減の為コメントアウト
+   
+                """
+  
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
                       fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
 
-                   
-                    #負荷軽減の為コメントアウト
+                """   
+
+
+ #負荷軽減の為コメントアウト
                     
                     """
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
