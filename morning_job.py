@@ -199,7 +199,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(1, 13):
+            for r in range(1, 2):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
