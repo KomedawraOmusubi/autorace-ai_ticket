@@ -105,6 +105,14 @@ def add_predictions(df):
         goal_arrival_times = []
         prefix = f"{condition}5"
         
+        # カラム名のマッピング設定
+        if condition == '良':
+            col_goal = "前日ゴール時間(良)"
+            col_time = "前日予想競走T(良)"
+        else:
+            col_goal = "前日ゴール時間(湿)"
+            col_time = "前日予想競走T(湿)"
+
         for idx_row, row in df.iterrows():
             car_no = str(row.get("車", ""))
             
@@ -142,13 +150,13 @@ def add_predictions(df):
             arrival_time = total_distance / v_sec
             
             # 小数点第3位まで文字列として保持 (末尾0も表示)
-            df.at[idx_row, f'予想競走タイム({condition})'] = f"{agari_100m:.3f}"
+            df.at[idx_row, col_time] = f"{agari_100m:.3f}"
             goal_arrival_times.append(round(arrival_time, 2))
 
-        df[f'仮想ゴール時間({condition})'] = goal_arrival_times
+        df[col_goal] = goal_arrival_times
         
-        # 仮想ゴール時間が短い順に印
-        df = df.sort_values(f'仮想ゴール時間({condition})')
+        # 指定のゴール時間カラムでソートして印付け
+        df = df.sort_values(col_goal)
         marks = ["◎", "〇", "▲", "△", "✕", " ", " ", " "]
         df[f'印({condition})'] = marks[:len(df)]
         df[f'予想着順({condition})'] = range(1, len(df) + 1)
@@ -185,12 +193,11 @@ def main():
             active_places = []
 
         for place in active_places:
-            # 1RのURLをベースに各レースへ
             first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(1, 2):
+            for r in range(1, 2 ):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -233,7 +240,7 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
 
-                    # --- 全詳細データ取得（コメントアウト復元） ---
+                    # --- 全詳細データ取得 ---
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,"90(近10)_各着順":6, 
                         "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, 
@@ -255,8 +262,8 @@ def main():
 
                     fixed_cols = [
                         "印(良)", "印(湿)", "車", "選手名", "ハンデ", "偏差", 
-                        "仮想ゴール時間(良)", "予想競走タイム(良)", 
-                        "仮想ゴール時間(湿)", "予想競走タイム(湿)"
+                        "前日ゴール時間(良)", "前日予想競走T(良)", 
+                        "前日ゴール時間(湿)", "前日予想競走T(湿)"
                     ]
                     df = df[fixed_cols + [c for c in df.columns if c not in fixed_cols]]
                     df.insert(0, '場所', place)
