@@ -82,11 +82,18 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
 def add_predictions(df):
     """
     3100m追い抜き計算ロジック:
-    1. 仮想試走タイム決定 (前1～前5の平均、無ければ3.40)
-    2. 1号車補正 (-0.01)
-    3. 予想競走タイム算出 (仮想試走 + 個別偏差、小数点第3位表示)
+    良走路: 試走平均(前1-3) + 個別偏差
+    湿走路: 競走タイム平均(前1-3) をそのまま採用 (1号車補正あり)
     """
-    def extract_shiso(val):
+    def extract_race_time(val):
+        """ '3.65 / 3.42' の形式から左側の『競走タイム(3.65)』を抽出 """
+        if pd.isna(val) or val == "-": return None
+        nums = re.findall(r'\d+\.\d+', str(val))
+        if len(nums) >= 1: return float(nums[0])
+        return None
+
+    def extract_shiso_time(val):
+        """ '3.65 / 3.42' の形式から右側の『試走タイム(3.42)』を抽出 """
         if pd.isna(val) or val == "-": return None
         nums = re.findall(r'\d+\.\d+', str(val))
         if len(nums) >= 2: return float(nums[-2])
@@ -94,7 +101,6 @@ def add_predictions(df):
         return None
 
     def get_deviation(val):
-        """偏差（例: '061'）を数値（0.061）に変換。各選手固有の値を反映"""
         if pd.isna(val) or val == "-": return 0.070
         s = re.sub(r'\D', '', str(val))
         if len(s) == 3: return float(f"0.{s}")
@@ -104,58 +110,53 @@ def add_predictions(df):
     for condition in ['良', '湿']:
         goal_arrival_times = []
         prefix = f"{condition}5"
-        
-        # カラム名のマッピング設定
-        if condition == '良':
-            col_goal = "前日ゴール時間(良)"
-            col_time = "前日予想競走T(良)"
-        else:
-            col_goal = "前日ゴール時間(湿)"
-            col_time = "前日予想競走T(湿)"
+        col_goal = f"前日ゴール時間({condition})"
+        col_time = f"前日予想競走T({condition})"
 
         for idx_row, row in df.iterrows():
             car_no = str(row.get("車", ""))
             
-            # --- 1. 仮想試走タイムの算出 (前1～前5の平均) ---
-            past_shiso_list = []
-            for i in range(1, 6):
-                s_val = extract_shiso(row.get(f"{prefix}_前{i}"))
-                if s_val is not None:
-                    past_shiso_list.append(s_val)
-            
-            if past_shiso_list:
-                v_shiso = sum(past_shiso_list) / len(past_shiso_list)
-            else:
-                if condition == '湿':
-                    dry_list = [extract_shiso(row.get(f"良5_前{i}")) for i in range(1, 6) if extract_shiso(row.get(f"良5_前{i}")) is not None]
-                    base_val = sum(dry_list) / len(dry_list) if dry_list else 3.40
-                    v_shiso = base_val + random.uniform(0.35, 0.45)
+            # --- 予想競走タイム(agari_100m)の決定ロジック ---
+            if condition == '湿':
+                # 湿の場合: 過去3走の「競走タイム(左側)」の平均をそのまま使用
+                past_race_list = []
+                for i in range(1, 4):
+                    r_val = extract_race_time(row.get(f"湿5_前{i}"))
+                    if r_val is not None: past_race_list.append(r_val)
+                
+                if past_race_list:
+                    agari_100m = sum(past_race_list) / len(past_race_list)
                 else:
-                    v_shiso = 3.40
+                    # 湿データがない場合: 良の競走タイム平均に0.35秒加算して代用
+                    dry_list = [extract_race_time(row.get(f"良5_前{i}")) for i in range(1, 4) if extract_race_time(row.get(f"良5_前{i}")) is not None]
+                    base_val = sum(dry_list) / len(dry_list) if dry_list else 3.47
+                    agari_100m = base_val + 0.35
+            else:
+                # 良の場合: 過去3走の「試走タイム(右側)」平均 + 個別偏差
+                past_shiso_list = []
+                for i in range(1, 4):
+                    s_val = extract_shiso_time(row.get(f"良5_前{i}"))
+                    if s_val is not None: past_shiso_list.append(s_val)
+                
+                v_shiso = sum(past_shiso_list) / len(past_shiso_list) if past_shiso_list else 3.40
+                hensa = get_deviation(row.get("偏差"))
+                agari_100m = v_shiso + hensa
 
             # 1号車補正
             if car_no == "1":
-                v_shiso -= 0.01
+                agari_100m -= 0.01
             
-            # --- 2. 予想競走タイムの算出 (個別偏差を適用) ---
-            hensa = get_deviation(row.get("偏差"))
-            agari_100m = v_shiso + hensa
-            
-            # --- 3. 3100mシミュレーション ---
+            # 3100mシミュレーション
             h_str = str(row.get("ハンデ", "0"))
             handi = float(re.sub(r'\D', '', h_str)) if re.sub(r'\D', '', h_str) else 0
-            
             v_sec = 100 / agari_100m
             total_distance = 3100 + handi
             arrival_time = total_distance / v_sec
             
-            # 小数点第3位まで文字列として保持 (末尾0も表示)
             df.at[idx_row, col_time] = f"{agari_100m:.3f}"
             goal_arrival_times.append(round(arrival_time, 2))
 
         df[col_goal] = goal_arrival_times
-        
-        # 指定のゴール時間カラムでソートして印付け
         df = df.sort_values(col_goal)
         marks = ["◎", "〇", "▲", "△", "✕", " ", " ", " "]
         df[f'印({condition})'] = marks[:len(df)]
@@ -197,7 +198,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(1, 2):
+            for r in range(1, 13):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -210,35 +211,21 @@ def main():
                     race_id = f"{today_id}_{place}_{race_no_str}"
                     print(f"\n  ===[ {race_id} ]===", flush=True)
 
-                    # --- レース概要情報の取得 (正確な振り分け) ---
                     grade_val, date_val, race_val, dist_val = ["-"] * 4
                     try:
-                        # 1. グレード・開催タイトルの取得
-                        try:
-                            title_elem = driver.find_element(By.CSS_SELECTOR, "#race-result-race-info h3")
-                            grade_val = title_elem.text.strip()
-                        except:
-                            grade_val = driver.find_element(By.CLASS_NAME, "race-title-period").text.split("\n")[0].strip()
-                        
-                        # 2. infoTableが2つある構造に対応
+                        title_elem = driver.find_element(By.CSS_SELECTOR, "#race-result-race-info h3")
+                        grade_val = title_elem.text.strip()
                         info_tables = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable")
                         if len(info_tables) >= 1:
-                            # 1つ目のテーブル：日付、レース、距離、天候
                             tds1 = info_tables[0].find_elements(By.CSS_SELECTOR, "tbody tr td")
                             if len(tds1) >= 3:
-                                # 日付のみを抽出 (余計なspanを排除するため textContent 等を検討)
-                                raw_date = tds1[0].text.split("\n")
-                                date_val = raw_date[0].strip() if raw_date else "-"
+                                date_val = tds1[0].text.split("\n")[0].strip()
                                 race_val = tds1[1].text.strip()
                                 dist_val = tds1[2].text.strip()
-                    except Exception as e:
-                        print(f"      [情報取得失敗] {e}")
+                    except: pass
 
                     base_data = {str(i): {} for i in range(1, 9)}
-                    
-                    fetch_tab_data_by_click(driver, wait, "program", base_data, 
-                                            {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, 
-                                            "出走表", force_click=(r > 1))
+                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
                     for car_no, row_data in base_data.items():
                         raw_text = row_data.get("_raw_info", "")
@@ -256,15 +243,13 @@ def main():
                         row_data.update({"選手名":p_name,"競走車":p_car,"所属":p_loc,"期":p_gen,"年齢":p_age,"車級":p_class,"ランク":p_rank})
                         if "_raw_info" in row_data: del row_data["_raw_info"]
 
-                    recent10_cols = {f"近10_{i-1}": i for i in range(2, 12)}
-                    fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
-
+                    fetch_tab_data_by_click(driver, wait, "recent10", base_data, {f"近10_{i-1}": i for i in range(2, 12)}, "近10走")
                     f_map = {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6, "平近順": 7, "近況": 8, "2連対率": 9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
 
-                    # --- 全詳細データ取得 ---
+                    # --- 全詳細データの取得 (コメントアウト状態で保持) ---
                     """
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,"90(近10)_各着順":6, 
@@ -286,18 +271,9 @@ def main():
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     df = add_predictions(df)
 
-                    fixed_cols = [
-                        "印(良)", "印(湿)", "車", "選手名", "ハンデ", "偏差", 
-                        "前日ゴール時間(良)", "前日予想競走T(良)", 
-                        "前日ゴール時間(湿)", "前日予想競走T(湿)"
-                    ]
+                    fixed_cols = ["印(良)", "印(湿)", "車", "選手名", "ハンデ", "偏差", "前日ゴール時間(良)", "前日予想競走T(良)", "前日ゴール時間(湿)", "前日予想競走T(湿)"]
                     df = df[fixed_cols + [c for c in df.columns if c not in fixed_cols]]
-                    
-                    df.insert(0, '場所', place)
-                    df.insert(1, 'グレード', grade_val)
-                    df.insert(2, '日付', date_val)
-                    df.insert(3, 'レース', race_val)
-                    df.insert(4, '距離', dist_val)
+                    df.insert(0, '場所', place); df.insert(1, 'グレード', grade_val); df.insert(2, '日付', date_val); df.insert(3, 'レース', race_val); df.insert(4, '距離', dist_val)
                     
                     df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
                     print(f"  => {race_id} 保存完了。", flush=True)
