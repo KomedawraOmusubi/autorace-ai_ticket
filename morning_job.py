@@ -82,9 +82,9 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
 def add_predictions(df):
     """
     3100m追い抜き計算ロジック:
-    1. 100mあたりの上がりタイム算出 (仮想試走T + 偏差)
-    2. 3100m + ハンデ距離 を走るのにかかる総時間を算出
-    3. 到着時間が早い順に印を付与
+    1. 1号車補正 (-0.01)
+    2. 予想競走タイム算出 (小数点第3位丸め)
+    3. 仮想ゴール時間算出 (小数点第2位丸め)
     """
     def to_f(val):
         try:
@@ -98,35 +98,40 @@ def add_predictions(df):
         prefix = f"{condition}5"
         
         for _, row in df.iterrows():
+            car_no = str(row.get("車", ""))
+            
             # --- 1. 仮想試走タイムの決定 ---
             v_shiso = to_f(row.get(f"{prefix}_近況"))
             if v_shiso is None:
                 if condition == '湿':
-                    # 雨データなし：良の近況に +0.35〜0.45秒補正
                     wet_adj = random.uniform(0.35, 0.45)
                     v_shiso = (to_f(row.get("良5_近況")) or 3.40) + wet_adj
                 else:
                     v_shiso = 3.40
+
+            # 1号車補正
+            if car_no == "1":
+                v_shiso -= 0.01
             
             # --- 2. 100mあたりの速度の算出 ---
             hensa = to_f(row.get("偏差")) or 0.070
             agari_100m = v_shiso + hensa
-            v_sec = 100 / agari_100m     # 秒速(m/s)
+            v_sec = 100 / agari_100m
             
             # --- 3. 3100mシミュレーション ---
             h_str = str(row.get("ハンデ", "0"))
             handi = float(re.sub(r'\D', '', h_str)) if re.sub(r'\D', '', h_str) else 0
             
-            # 到着時間(s) = (3100m + ハンデ距離) / 秒速
             total_distance = 3100 + handi
             arrival_time = total_distance / v_sec
             
-            goal_arrival_times.append(arrival_time)
-            df.at[_, f'予想競走タイム({condition})'] = agari_100m
+            # 数値の丸め処理
+            df.at[_, f'予想競走タイム({condition})'] = round(agari_100m, 3)
+            goal_arrival_times.append(round(arrival_time, 2))
 
         df[f'仮想ゴール時間({condition})'] = goal_arrival_times
         
-        # 仮想ゴール時間が短い順（早く着く順）に印
+        # 仮想ゴール時間が短い順に印
         df = df.sort_values(f'仮想ゴール時間({condition})')
         marks = ["◎", "〇", "▲", "△", "✕", " ", " ", " "]
         df[f'印({condition})'] = marks[:len(df)]
@@ -168,7 +173,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(1, 2): # 全レース
+            for r in range(1, 2):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -211,13 +216,7 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
 
-                    # --- 以下、コメントアウト部分も保持 ---
-                    """
-                    f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
-                    for sub_id in ["good5", "wet5", "han5"]:
-                        l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
-                        fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
-
+                    # --- 全詳細データ取得（復元部分） ---
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,"90(近10)_各着順":6, 
                         "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, 
@@ -233,7 +232,6 @@ def main():
                         "今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, 
                         "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10
                     }, "今年/通算")
-                    """
 
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     df = add_predictions(df)
