@@ -114,8 +114,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-#取得レースを調整(テスト用)
-            
+            # 取得レースを調整(テスト用)
             for r in range(1, 2):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
@@ -151,7 +150,6 @@ def main():
                             # 所属と期（例: "飯塚 27期"）を分割
                             if len(lines) >= 3:
                                 loc_gen = lines[2]
-                                # スペースや特定の文字で分割を試みる
                                 parts = re.split(r'\s+', loc_gen)
                                 p_loc = parts[0] if len(parts) >= 1 else "-"
                                 p_gen = parts[1] if len(parts) >= 2 else "-"
@@ -177,29 +175,20 @@ def main():
                     recent10_cols = {f"近10_{i-1}": i for i in range(2, 12)}
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
 
-
-
-  f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
+                    f_map = {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6, "平近順": 7, "近況": 8, "2連対率": 9}
                     for sub_id in ["good5", "wet5"]:
-                        l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" 
-                      fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
+                        l_prefix = "良5" if sub_id == "good5" else "湿5"
+                        fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
 
-
-                 
-#負荷軽減の為コメントアウト
-   
-                """
-  
+                    # 負荷軽減の為コメントアウト
+                    """
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
-                      fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
+                        fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
+                    """   
 
-                """   
-
-
- #負荷軽減の為コメントアウト
-                    
+                    # 負荷軽減の為コメントアウト
                     """
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,"90(近10)_各着順":6, 
@@ -216,7 +205,6 @@ def main():
                         "今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, 
                         "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10
                     }, "今年/通算")
-
                     """
 
                     df = pd.DataFrame(base_data.values())
