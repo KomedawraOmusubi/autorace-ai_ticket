@@ -141,7 +141,7 @@ def main():
                 print(f"  => {place.upper()} スキップ: 本日の開催がないかデータ未公開")
                 continue
 
-            for r in range(1, 13):
+            for r in range(1, 2):
                 race_no = str(r)
                 base_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
                 
