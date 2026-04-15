@@ -67,13 +67,11 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
                 if len(cols) >= 2:
-                    # 修正箇所: 車番が数字であることを確認し、空行やヘッダーによるズレを防止
                     car_no = cols[0].text.strip()
                     if car_no.isdigit() and car_no in data_map:
                         for key, idx in col_indices.items():
                             if idx < len(cols):
                                 val = cols[idx].text.strip()
-                                # programの選手名列（1）だけは改行を保持
                                 if key != "_raw_info":
                                     val = val.replace("\n", " ")
                                 data_map[car_no][key] = val
@@ -98,25 +96,21 @@ def add_predictions(df):
         prefix = f"{condition}5"
         
         for _, row in df.iterrows():
-            # 1. 仮想試走タイム (近況を参照、なければ標準値)
             v_shiso = to_f(row.get(f"{prefix}_近況")) or to_f(row.get("試走T")) or 3.35
-            # 2. 偏差
             hensa = to_f(row.get("偏差")) or 0.070
-            # 3. ハンデ調整 (後ろの車ほどタイムを加算)
             handi_str = str(row.get("ハンデ", "0"))
             handi_val = float(re.sub(r'\D', '', handi_str)) if re.sub(r'\D', '', handi_str) else 0
             
             est_race_time = v_shiso + hensa + (handi_val / 10 * 0.01)
             pred_times.append(est_race_time)
         
-        cond_en = "good" if condition == '良' else "wet"
-        df[f'予想競走タイム_{cond_en}'] = pred_times
+        # 修正：CSV保存用の fixed_cols の日本語名と完全に一致させる
+        df[f'予想競走タイム({condition})'] = pred_times
         
-        # タイム順にソートして印を付与
-        df = df.sort_values(f'予想競走タイム_{cond_en}')
+        df = df.sort_values(f'予想競走タイム({condition})')
         marks = ["◎", "〇", "▲", "△", "✕", " ", " ", " "]
-        df[f'印_{cond_en}'] = marks[:len(df)]
-        df[f'予想着順_{cond_en}'] = range(1, len(df) + 1)
+        df[f'印({condition})'] = marks[:len(df)]
+        df[f'予想着順({condition})'] = range(1, len(df) + 1)
         
     return df.sort_values('車')
 
@@ -169,7 +163,6 @@ def main():
 
                     base_data = {str(i): {} for i in range(1, 9)}
                     
-                    # 出走表取得
                     fetch_tab_data_by_click(driver, wait, "program", base_data, 
                                             {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, 
                                             "出走表", force_click=(r > 1))
@@ -238,14 +231,12 @@ def main():
                     }, "今年/通算")
                     """
 
-                    # 選手名が取得できなかった（空行など）のデータを除外してDataFrame化
                     valid_data = [v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"]
                     if not valid_data:
                         continue
                         
                     df = pd.DataFrame(valid_data)
                     
-                    # 予想ロジック適用
                     df = add_predictions(df)
 
                     fixed_cols = [
