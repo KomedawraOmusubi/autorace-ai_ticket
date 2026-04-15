@@ -82,16 +82,30 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
 def add_predictions(df):
     """
     3100m追い抜き計算ロジック:
-    1. 1号車補正 (-0.01)
-    2. 予想競走タイム算出 (小数点第3位丸め)
-    3. 仮想ゴール時間算出 (小数点第2位丸め)
+    1. 仮想試走算出: 
+       各セルの文字列（例: "04/07飯 6着1R 3.503 3.46 ST 0.17"）から
+       試走タイム(3.46)を抽出し、前1～前5で平均をとる。
+    2. 1号車補正 (-0.01)
+    3. 予想競走タイム算出 (小数点第3位丸め・表示)
+    4. 仮想ゴール時間算出 (小数点第2位丸め)
     """
-    def to_f(val):
-        try:
-            res = re.findall(r'\d+\.\d+', str(val))
-            return float(res[0]) if res else None
-        except:
-            return None
+    def extract_shiso(val):
+        """文字列の中から試走タイム（後ろから2番目の数値）を抽出する"""
+        if pd.isna(val) or val == "-": return None
+        # 数値（d.ddd または d.dd）をすべて見つける
+        nums = re.findall(r'\d+\.\d+', str(val))
+        # 画像の形式だと [競走タイム, 試走タイム, ST] の順になるため、
+        # 要素が2つ以上あれば最後から2番目が試走タイム、1つならそれを試走とする
+        if len(nums) >= 2:
+            return float(nums[-2])
+        elif len(nums) == 1:
+            return float(nums[0])
+        return None
+
+    def get_deviation(val):
+        """偏差カラムから数値だけ抜く用"""
+        res = re.findall(r'\d+\.\d+', str(val))
+        return float(res[0]) if res else None
 
     for condition in ['良', '湿']:
         goal_arrival_times = []
@@ -100,12 +114,21 @@ def add_predictions(df):
         for idx_row, row in df.iterrows():
             car_no = str(row.get("車", ""))
             
-            # --- 1. 仮想試走タイムの決定 ---
-            v_shiso = to_f(row.get(f"{prefix}_近況"))
-            if v_shiso is None:
+            # --- 1. 仮想試走タイムの算出 (前1～前5の有効データ平均) ---
+            past_shiso_list = []
+            for i in range(1, 6):
+                s_val = extract_shiso(row.get(f"{prefix}_前{i}"))
+                if s_val is not None:
+                    past_shiso_list.append(s_val)
+            
+            if past_shiso_list:
+                v_shiso = sum(past_shiso_list) / len(past_shiso_list)
+            else:
+                # 前1～5が1つも無い場合のバックアップ
                 if condition == '湿':
-                    wet_adj = random.uniform(0.35, 0.45)
-                    v_shiso = (to_f(row.get("良5_近況")) or 3.40) + wet_adj
+                    dry_list = [extract_shiso(row.get(f"良5_前{i}")) for i in range(1, 6) if extract_shiso(row.get(f"良5_前{i}")) is not None]
+                    base_val = sum(dry_list) / len(dry_list) if dry_list else 3.40
+                    v_shiso = base_val + random.uniform(0.35, 0.45)
                 else:
                     v_shiso = 3.40
 
@@ -114,7 +137,7 @@ def add_predictions(df):
                 v_shiso -= 0.01
             
             # --- 2. 100mあたりの速度の算出 ---
-            hensa = to_f(row.get("偏差")) or 0.070
+            hensa = get_deviation(row.get("偏差")) or 0.070
             agari_100m = v_shiso + hensa
             v_sec = 100 / agari_100m
             
@@ -125,14 +148,13 @@ def add_predictions(df):
             total_distance = 3100 + handi
             arrival_time = total_distance / v_sec
             
-            # 数値の丸め処理と代入（フォーマットを指定して確実に3位まで残す。末尾0も表示）
+            # 結果の格納 (小数点第3位まで、0埋めあり)
             df.at[idx_row, f'予想競走タイム({condition})'] = f"{agari_100m:.3f}"
-            # 仮想ゴール時間も同様に2桁固定にしたい場合は f"{arrival_time:.2f}" に変更可能
             goal_arrival_times.append(round(arrival_time, 2))
 
         df[f'仮想ゴール時間({condition})'] = goal_arrival_times
         
-        # 仮想ゴール時間が短い順に印
+        # 着順・印付け
         df = df.sort_values(f'仮想ゴール時間({condition})')
         marks = ["◎", "〇", "▲", "△", "✕", " ", " ", " "]
         df[f'印({condition})'] = marks[:len(df)]
