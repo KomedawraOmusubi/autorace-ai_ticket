@@ -6,6 +6,7 @@ import pytz
 import glob
 import random
 import re
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -13,24 +14,30 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
+# タイムゾーン設定
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
+
+# --- GASのURL ---
+GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyeHqZcoqijEYlaXoNVJs-XevCvP4WaQSQLsMA-_-QUuhyEQY6wJgJWzUroJaEjibEo/exec"
 
 def get_driver():
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     options.add_argument('--lang=ja-JP')
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
     
     options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
+    options.experimental_option("excludeSwitches", ["enable-automation"])
+    options.experimental_option('useAutomationExtension', False)
     
     options.add_argument('--blink-settings=imagesEnabled=false')
-    options.add_experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
+    options.experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
@@ -83,17 +90,18 @@ def add_predictions(df):
     """
     3100m追い抜き計算ロジック:
     良走路: 試走平均(前1-3) + 個別偏差
-    湿走路: 競走タイム平均(前1-3) をそのまま採用 (1号車補正あり)
+    湿走路: 競走タイム平均(前1-3) をそのまま採用
+    共通: 1号車補正 (-0.01)
     """
     def extract_race_time(val):
-        """ '3.65 / 3.42' の形式から左側の『競走タイム(3.65)』を抽出 """
+        """ '競走タイム / 試走タイム' の左側を抽出 """
         if pd.isna(val) or val == "-": return None
         nums = re.findall(r'\d+\.\d+', str(val))
         if len(nums) >= 1: return float(nums[0])
         return None
 
     def extract_shiso_time(val):
-        """ '3.65 / 3.42' の形式から右側の『試走タイム(3.42)』を抽出 """
+        """ '競走タイム / 試走タイム' の右側を抽出 """
         if pd.isna(val) or val == "-": return None
         nums = re.findall(r'\d+\.\d+', str(val))
         if len(nums) >= 2: return float(nums[-2])
@@ -109,16 +117,14 @@ def add_predictions(df):
 
     for condition in ['良', '湿']:
         goal_arrival_times = []
-        prefix = f"{condition}5"
         col_goal = f"前日ゴール時間({condition})"
         col_time = f"前日予想競走T({condition})"
 
         for idx_row, row in df.iterrows():
             car_no = str(row.get("車", ""))
             
-            # --- 予想競走タイム(agari_100m)の決定ロジック ---
             if condition == '湿':
-                # 湿の場合: 過去3走の「競走タイム(左側)」の平均をそのまま使用
+                # 湿の場合: 過去3走の「競走タイム」の平均
                 past_race_list = []
                 for i in range(1, 4):
                     r_val = extract_race_time(row.get(f"湿5_前{i}"))
@@ -127,12 +133,12 @@ def add_predictions(df):
                 if past_race_list:
                     agari_100m = sum(past_race_list) / len(past_race_list)
                 else:
-                    # 湿データがない場合: 良の競走タイム平均に0.35秒加算して代用
+                    # データなし代用
                     dry_list = [extract_race_time(row.get(f"良5_前{i}")) for i in range(1, 4) if extract_race_time(row.get(f"良5_前{i}")) is not None]
                     base_val = sum(dry_list) / len(dry_list) if dry_list else 3.47
                     agari_100m = base_val + 0.35
             else:
-                # 良の場合: 過去3走の「試走タイム(右側)」平均 + 個別偏差
+                # 良の場合: 過去3走の「試走タイム」平均 + 偏差
                 past_shiso_list = []
                 for i in range(1, 4):
                     s_val = extract_shiso_time(row.get(f"良5_前{i}"))
@@ -176,6 +182,9 @@ def main():
 
     driver = get_driver()
     wait = WebDriverWait(driver, 20)
+    
+    # GAS送信用の予約リスト
+    target_times = []
 
     try:
         print(f"\n--- スクレイピング開始 ({today_str}) ---", flush=True)
@@ -210,6 +219,21 @@ def main():
                     race_no_str = str(r).zfill(2)
                     race_id = f"{today_id}_{place}_{race_no_str}"
                     print(f"\n  ===[ {race_id} ]===", flush=True)
+
+                    # --- 発走予定時刻の取得と予約リスト作成 ---
+                    start_time_raw = "-"
+                    try:
+                        raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
+                        start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
+                        if ":" in start_time_raw:
+                            race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
+                            race_time = TOKYO_TZ.localize(race_time_obj)
+                            trigger_time = race_time - datetime.timedelta(minutes=15)
+                            # 15分前のトリガー時刻を予約リストに追加
+                            if trigger_time > now_jst:
+                                target_times.append(trigger_time.strftime("%Y-%m-%dT%H:%M:00"))
+                    except:
+                        pass
 
                     grade_val, date_val, race_val, dist_val = ["-"] * 4
                     try:
@@ -268,8 +292,8 @@ def main():
                     }, "今年/通算")
                     """
 
-                    df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
-                    df = add_predictions(df)
+                    df_temp = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
+                    df = add_predictions(df_temp)
 
                     fixed_cols = ["印(良)", "印(湿)", "車", "選手名", "ハンデ", "偏差", "前日ゴール時間(良)", "前日予想競走T(良)", "前日ゴール時間(湿)", "前日予想競走T(湿)"]
                     df = df[fixed_cols + [c for c in df.columns if c not in fixed_cols]]
@@ -281,6 +305,16 @@ def main():
 
                 except Exception as e:
                     print(f"  => {r}R 失敗: {e}", flush=True)
+
+        # --- 全レース終了後にGASへ予約リストを一括送信 ---
+        if target_times:
+            unique_times = sorted(list(set(target_times)))[:20]
+            try:
+                res = requests.post(GAS_WEBAPP_URL, json={"times": unique_times}, timeout=20)
+                print(f"\nGAS送信完了: {res.status_code}")
+            except Exception as e:
+                print(f"\nGAS送信エラー: {e}")
+
     finally:
         driver.quit()
         print("\n全工程終了。", flush=True)
