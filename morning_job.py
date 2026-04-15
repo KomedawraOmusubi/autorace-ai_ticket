@@ -81,8 +81,10 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
 
 def add_predictions(df):
     """
-    前日予想ロジック:
-    仮想競走タイム = 仮想試走 + 偏差 + (ハンデ/10 * 0.01)
+    3100m追い抜き計算ロジック:
+    1. 100mあたりの上がりタイム算出 (仮想試走T + 偏差)
+    2. 3100m + ハンデ距離 を走るのにかかる総時間を算出
+    3. 到着時間が早い順に印を付与
     """
     def to_f(val):
         try:
@@ -92,22 +94,40 @@ def add_predictions(df):
             return None
 
     for condition in ['良', '湿']:
-        pred_times = []
+        goal_arrival_times = []
         prefix = f"{condition}5"
         
         for _, row in df.iterrows():
-            v_shiso = to_f(row.get(f"{prefix}_近況")) or to_f(row.get("試走T")) or 3.35
-            hensa = to_f(row.get("偏差")) or 0.070
-            handi_str = str(row.get("ハンデ", "0"))
-            handi_val = float(re.sub(r'\D', '', handi_str)) if re.sub(r'\D', '', handi_str) else 0
+            # --- 1. 仮想試走タイムの決定 ---
+            v_shiso = to_f(row.get(f"{prefix}_近況"))
+            if v_shiso is None:
+                if condition == '湿':
+                    # 雨データなし：良の近況に +0.35〜0.45秒補正
+                    wet_adj = random.uniform(0.35, 0.45)
+                    v_shiso = (to_f(row.get("良5_近況")) or 3.40) + wet_adj
+                else:
+                    v_shiso = 3.40
             
-            est_race_time = v_shiso + hensa + (handi_val / 10 * 0.01)
-            pred_times.append(est_race_time)
+            # --- 2. 100mあたりの速度の算出 ---
+            hensa = to_f(row.get("偏差")) or 0.070
+            agari_100m = v_shiso + hensa
+            v_sec = 100 / agari_100m     # 秒速(m/s)
+            
+            # --- 3. 3100mシミュレーション ---
+            h_str = str(row.get("ハンデ", "0"))
+            handi = float(re.sub(r'\D', '', h_str)) if re.sub(r'\D', '', h_str) else 0
+            
+            # 到着時間(s) = (3100m + ハンデ距離) / 秒速
+            total_distance = 3100 + handi
+            arrival_time = total_distance / v_sec
+            
+            goal_arrival_times.append(arrival_time)
+            df.at[_, f'予想競走タイム({condition})'] = agari_100m
+
+        df[f'仮想ゴール時間({condition})'] = goal_arrival_times
         
-        # 修正：CSV保存用の fixed_cols の日本語名と完全に一致させる
-        df[f'予想競走タイム({condition})'] = pred_times
-        
-        df = df.sort_values(f'予想競走タイム({condition})')
+        # 仮想ゴール時間が短い順（早く着く順）に印
+        df = df.sort_values(f'仮想ゴール時間({condition})')
         marks = ["◎", "〇", "▲", "△", "✕", " ", " ", " "]
         df[f'印({condition})'] = marks[:len(df)]
         df[f'予想着順({condition})'] = range(1, len(df) + 1)
@@ -148,7 +168,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(1,2):
+            for r in range(1, 2): # 全レース
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -170,30 +190,17 @@ def main():
                     for car_no, row_data in base_data.items():
                         raw_text = row_data.get("_raw_info", "")
                         p_name, p_car, p_loc, p_gen, p_age, p_class, p_rank = ["-"] * 7
-                        
                         if raw_text and raw_text != "-":
                             lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
                             if len(lines) >= 1: p_name = lines[0]
                             if len(lines) >= 2: p_car  = lines[1]
                             if len(lines) >= 3:
-                                loc_gen = lines[2]
-                                parts = re.split(r'\s+', loc_gen)
-                                p_loc = parts[0] if len(parts) >= 1 else "-"
-                                p_gen = parts[1] if len(parts) >= 2 else "-"
+                                parts = re.split(r'\s+', lines[2])
+                                p_loc, p_gen = (parts + ["-"]*2)[:2]
                             if len(lines) >= 4:
-                                details = lines[3]
-                                parts = re.split(r'\s+', details)
-                                p_age   = parts[0] if len(parts) >= 1 else "-"
-                                p_class = parts[1] if len(parts) >= 2 else "-"
-                                p_rank  = parts[2] if len(parts) >= 3 else "-"
-
-                        row_data["選手名"] = p_name
-                        row_data["競走車"] = p_car
-                        row_data["所属"]   = p_loc
-                        row_data["期"]     = p_gen
-                        row_data["年齢"]   = p_age
-                        row_data["車級"]   = p_class
-                        row_data["ランク"] = p_rank
+                                parts = re.split(r'\s+', lines[3])
+                                p_age, p_class, p_rank = (parts + ["-"]*3)[:3]
+                        row_data.update({"選手名":p_name,"競走車":p_car,"所属":p_loc,"期":p_gen,"年齢":p_age,"車級":p_class,"ランク":p_rank})
                         if "_raw_info" in row_data: del row_data["_raw_info"]
 
                     recent10_cols = {f"近10_{i-1}": i for i in range(2, 12)}
@@ -204,16 +211,13 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
 
-                    # 負荷軽減の為コメントアウト (ご要望により保持)
+                    # --- 以下、コメントアウト部分も保持 ---
                     """
                     f_map = {"前1":2, "前2":3, "前3":4, "前4":5, "前5":6, "平近順":7, "近況":8, "2連対率":9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id=="good5" else "湿5" if sub_id=="wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}":v for k,v in f_map.items()}, l_prefix)
-                    """   
 
-                    # 負荷軽減の為コメントアウト (ご要望により保持)
-                    """
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,"90(近10)_各着順":6, 
                         "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, 
@@ -231,22 +235,15 @@ def main():
                     }, "今年/通算")
                     """
 
-                    valid_data = [v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"]
-                    if not valid_data:
-                        continue
-                        
-                    df = pd.DataFrame(valid_data)
-                    
+                    df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     df = add_predictions(df)
 
                     fixed_cols = [
-                        "印(良)", "印(湿)", "車", "選手名", 
-                        "競走車", "所属", "期", "年齢", "車級", "ランク", "ハンデ", "試走T", "偏差", "連率", 
-                        "予想着順(良)", "予想競走タイム(良)", "予想着順(湿)", "予想競走タイム(湿)"
+                        "印(良)", "印(湿)", "車", "選手名", "ハンデ", "偏差", 
+                        "仮想ゴール時間(良)", "予想競走タイム(良)", 
+                        "仮想ゴール時間(湿)", "予想競走タイム(湿)"
                     ]
-                    other_cols = [c for c in df.columns if c not in fixed_cols]
-                    df = df[fixed_cols + other_cols]
-
+                    df = df[fixed_cols + [c for c in df.columns if c not in fixed_cols]]
                     df.insert(0, '場所', place)
                     df.insert(1, 'レース番号', r)
                     
