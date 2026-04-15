@@ -197,7 +197,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(1, 2):
+            for r in range(1, 13):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -213,11 +213,9 @@ def main():
                     # --- レース概要情報の取得 ---
                     grade_val, date_val, race_val, dist_val = ["-"] * 4
                     try:
-                        # グレード情報の取得
                         grade_elem = driver.find_element(By.CSS_SELECTOR, ".race-title-period")
                         grade_val = grade_elem.text.replace("\n", " ").strip()
                         
-                        # 共通情報テーブルから日付・レース・距離を取得
                         info_table = driver.find_element(By.CSS_SELECTOR, "table.race-infoTable")
                         info_cols = info_table.find_elements(By.TAG_NAME, "td")
                         if len(info_cols) >= 3:
@@ -286,13 +284,12 @@ def main():
                     ]
                     df = df[fixed_cols + [c for c in df.columns if c not in fixed_cols]]
                     
-                    # データの挿入
+                    # カラム挿入
                     df.insert(0, '場所', place)
                     df.insert(1, 'グレード', grade_val)
                     df.insert(2, '日付', date_val)
                     df.insert(3, 'レース', race_val)
                     df.insert(4, '距離', dist_val)
-                    df.insert(5, 'レース番号', r)
                     
                     df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
                     print(f"  => {race_id} 保存完了。", flush=True)
