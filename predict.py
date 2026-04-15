@@ -47,7 +47,124 @@ def get_driver():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     return driver
 
-def print_betting_guide(df, place, race_no):
+def calculate_predictions(df, weather_prefix="良5"):
+    """
+    CSV内の「良5_前1」「湿5_前1」等のセル文字列から数値を抽出し、計算を行う
+    """
+    def extract_metrics(text):
+        if pd.isna(text) or text == "-" or str(text).strip() == "":
+            return None, None, None, None
+        
+        # 数値（競走T, 試走T, STなど）をすべて抽出
+        times = re.findall(r"\d+\.\d+", str(text))
+        # 「○着」を抽出
+        rank_match = re.search(r"(\d+)着", str(text))
+        
+        race_t = float(times[0]) if len(times) >= 1 else None
+        trial_t = float(times[1]) if len(times) >= 2 else None
+        st = float(times[2]) if len(times) >= 3 else None
+        rank = int(rank_match.group(1)) if rank_match else None
+        
+        return race_t, trial_t, st, rank
+
+    # 1〜3走前までのデータを抽出して新しい一時的なカラムに格納
+    for i in range(1, 4):
+        col_name = f"{weather_prefix}_前{i}"
+        if col_name in df.columns:
+            metrics = df[col_name].apply(extract_metrics)
+            df[f'temp_競走T_{i}'] = metrics.apply(lambda x: x[0])
+            df[f'temp_試走T_{i}'] = metrics.apply(lambda x: x[1])
+            df[f'temp_ST_{i}'] = metrics.apply(lambda x: x[2])
+            df[f'temp_順位_{i}'] = metrics.apply(lambda x: x[3])
+
+    # 数値変換
+    num_cols = ['試走T', 'ハンデ', '偏差', '良5順位']
+    for col in num_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # 基本指標の計算（抽出した一時カラムを使用）
+    df['平均競走タイム'] = df[[f'temp_競走T_{i}' for i in range(1, 4)]].mean(axis=1)
+    df['平均試走'] = df[[f'temp_試走T_{i}' for i in range(1, 4)]].mean(axis=1)
+    df['平均順位'] = df[[f'temp_順位_{i}' for i in range(1, 4)]].mean(axis=1)
+    df['平均st'] = df[[f'temp_ST_{i}' for i in range(1, 4)]].mean(axis=1)
+
+    # 直前予想競走T の計算
+    df['直前予想競走T'] = (df['平均競走タイム'] - df['平均試走']) + df['試走T']
+
+    # 上昇度（競走タイムの変化）
+    df['上昇度'] = (df['temp_競走T_3'] - df['temp_競走T_2']) + (df['temp_競走T_2'] - df['temp_競走T_1'])
+    df['上昇評価'] = df['上昇度'].apply(lambda x: 10 if (not pd.isna(x) and x > 0) else (5 if x == 0 else 0))
+
+    # 100m単価・追い上げスコア
+    df['100m単価'] = df['直前予想競走T'] / 31.0
+    df['追い上げスコア'] = 0
+    for i in range(len(df)):
+        my_unit = df.loc[i, '100m単価']
+        if pd.isna(my_unit): continue
+        followers = df.iloc[i+1:]
+        if not followers.empty:
+            faster_followers = followers[followers['100m単価'] < (my_unit - 0.01)]
+            if not faster_followers.empty:
+                df.loc[i, '追い上げスコア'] = -10
+
+    # 逃げ評価
+    df['逃げ評価'] = 0
+    for i in [0, 1, 2]: 
+        if i < len(df):
+            trial_rank = df['試走T'].rank(method='min').iloc[i]
+            if trial_rank <= 2 and df.loc[i, '平均st'] <= 0.15:
+                df.loc[i, '逃げ評価'] = 15
+
+    # 偏差評価
+    if '偏差' in df.columns:
+        median_dev = df['偏差'].median()
+        df['偏差評価'] = df['偏差'].apply(lambda x: 10 if (not pd.isna(x) and x <= median_dev) else 0)
+    else:
+        df['偏差評価'] = 0
+
+    # ST評価
+    df['ST評価'] = 0
+    if 'ハンデ' in df.columns:
+        for hd in df['ハンデ'].unique():
+            if pd.isna(hd): continue
+            mask = df['ハンデ'] == hd
+            min_st = df.loc[mask, '平均st'].min()
+            if not pd.isna(min_st):
+                df.loc[mask & (df['平均st'] == min_st), 'ST評価'] = 10
+
+    # タイム評価
+    df['タイム順位'] = df['直前予想競走T'].rank(method='min')
+    df['タイム評価'] = df['タイム順位'].apply(lambda x: max(0, 60 - (x * 10)) if not pd.isna(x) else 0)
+
+    # 実績評価
+    if '良5順位' in df.columns:
+        df['実績評価'] = df['良5順位'].rank(method='min').apply(lambda x: max(0, 30 - (x * 5)) if not pd.isna(x) else 0)
+    else:
+        df['実績評価'] = 0
+
+    # 最終スコア
+    df['予想スコア'] = (df['タイム評価'] + df['実績評価'] + df['偏差評価'] + 
+                        df['ST評価'] + df['上昇評価'] + df['追い上げスコア'] + df['逃げ評価'])
+    df['予想着順'] = df['予想スコア'].rank(ascending=False, method='min')
+
+    # 数値のフォーマット処理
+    target_2f_cols = ['平均競走タイム', '平均試走', '直前予想競走T']
+    for col in target_2f_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
+
+    df['平均st'] = pd.to_numeric(df['平均st'], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
+    df['上昇度'] = pd.to_numeric(df['上昇度'].fillna(0), errors='coerce').map(lambda x: f"{x:.3f}" if pd.notnull(x) else x)
+
+    rank_cols = ['平均順位', '予想着順', 'タイム順位']
+    for c in rank_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors='coerce').round(1)
+
+    return df
+
+def print_betting_guide(df, place, race_no, info_dict):
     sdf = df.sort_values('予想スコア', ascending=False).reset_index(drop=True)
     top1 = int(sdf.iloc[0]['車'])
     top2 = int(sdf.iloc[1]['車'])
@@ -59,6 +176,7 @@ def print_betting_guide(df, place, race_no):
     # Discord用メッセージ構築
     msg = []
     msg.append(f"**【{place} {race_no}R】 直前予想・推奨買い目**")
+    msg.append(f"状況: {info_dict['天候']} / 路面:{info_dict['走路状況']}({info_dict['走路温度']}℃) / 気温:{info_dict['気温']} / 湿度:{info_dict['湿度']}")
     msg.append("```")
     
     marks = ["◎", "○", "▲", "△", "注"]
@@ -90,82 +208,6 @@ def print_betting_guide(df, place, race_no):
     print("\n" + final_msg)
     # Discord送信
     send_discord_message(final_msg)
-
-def calculate_predictions(df):
-    cols_to_fix = ['前一競走T', '前二競走T', '前三競走T', '前一試走', '前二試走', '前三試走', 
-                   '前一順', '前二順', '前三順', '前一ST', '前二ST', '前三ST', '試走T', 'ハンデ', '良5順位', '偏差']
-    for col in cols_to_fix:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-
-    df['平均競走タイム'] = df[['前一競走T', '前二競走T', '前三競走T']].mean(axis=1)
-    df['平均試走'] = df[['前一試走', '前二試走', '前三試走']].mean(axis=1)
-    df['平均順位'] = df[['前一順', '前二順', '前三順']].mean(axis=1)
-    df['平均st'] = df[['前一ST', '前二ST', '前三ST']].mean(axis=1)
-
-    df['直前予想競走タイム'] = (df['平均競走タイム'] / df['平均試走']) * df['試走T']
-
-    df['上昇度'] = (df['前三競走T'] - df['前二競走T']) + (df['前二競走T'] - df['前一競走T'])
-    df['上昇評価'] = df['上昇度'].apply(lambda x: 10 if x > 0 else (5 if x == 0 else 0))
-
-    df['100m単価'] = df['直前予想競走タイム'] / 31.0
-    df['追い上げスコア'] = 0
-    for i in range(len(df)):
-        my_unit = df.loc[i, '100m単価']
-        followers = df.iloc[i+1:]
-        if not followers.empty:
-            faster_followers = followers[followers['100m単価'] < (my_unit - 0.01)]
-            if not faster_followers.empty:
-                df.loc[i, '追い上げスコア'] = -10
-
-    df['逃げ評価'] = 0
-    for i in [0, 1, 2]: 
-        if i < len(df):
-            trial_rank = df['試走T'].rank(method='min').iloc[i]
-            if trial_rank <= 2 and df.loc[i, '平均st'] <= 0.15:
-                df.loc[i, '逃げ評価'] = 15
-
-    if '偏差' in df.columns:
-        median_dev = df['偏差'].median()
-        df['偏差評価'] = df['偏差'].apply(lambda x: 10 if x <= median_dev else 0)
-    else:
-        df['偏差評価'] = 0
-
-    df['ST評価'] = 0
-    if 'ハンデ' in df.columns:
-        for hd in df['ハンデ'].unique():
-            if pd.isna(hd): continue
-            mask = df['ハンデ'] == hd
-            min_st = df.loc[mask, '平均st'].min()
-            df.loc[mask & (df['平均st'] == min_st), 'ST評価'] = 10
-
-    df['タイム順位'] = df['直前予想競走タイム'].rank(method='min')
-    df['タイム評価'] = df['タイム順位'].apply(lambda x: max(0, 60 - (x * 10)))
-
-    if '良5順位' in df.columns:
-        df['実績評価'] = df['良5順位'].rank(method='min').apply(lambda x: max(0, 30 - (x * 5)))
-    else:
-        df['実績評価'] = 0
-
-    df['予想スコア'] = (df['タイム評価'] + df['実績評価'] + df['偏差評価'] + 
-                        df['ST評価'] + df['上昇評価'] + df['追い上げスコア'] + df['逃げ評価'])
-    df['予想着順'] = df['予想スコア'].rank(ascending=False, method='min')
-
-    # --- 数値のフォーマット処理 ---
-    target_2f_cols = ['平均競走タイム', '平均試走', '直前予想競走タイム']
-    for col in target_2f_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
-
-    df['平均st'] = pd.to_numeric(df['平均st'], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
-    df['上昇度'] = pd.to_numeric(df['上昇度'], errors='coerce').map(lambda x: f"{x:.3f}" if pd.notnull(x) else x)
-
-    rank_cols = ['平均順位', '予想着順', 'タイム順位']
-    for c in rank_cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors='coerce').round(1)
-
-    return df
 
 def main():
     now = datetime.datetime.now(TOKYO_TZ)
@@ -219,8 +261,28 @@ def main():
                 
                 driver.get(target_url)
                 wait = WebDriverWait(driver, 10)
+
+                # --- レース情報の取得 (天候、走路状況など) ---
+                info_dict = {"天候": "-", "気温": "-", "湿度": "-", "走路温度": "-", "走路状況": "-"}
+                try:
+                    info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
+                    if len(info_tables) >= 2:
+                        # 1つ目のテーブル (日付, レース, 距離, 天候)
+                        tds1 = info_tables[0].find_elements(By.TAG_NAME, "td")
+                        if len(tds1) >= 4:
+                            info_dict["天候"] = tds1[3].text.strip()
+                        # 2つ目のテーブル (気温, 湿度, 走路温度, 走路状況)
+                        tds2 = info_tables[1].find_elements(By.TAG_NAME, "td")
+                        if len(tds2) >= 4:
+                            info_dict["気温"] = tds2[0].text.strip()
+                            info_dict["湿度"] = tds2[1].text.strip()
+                            info_dict["走路温度"] = tds2[2].text.strip()
+                            info_dict["走路状況"] = tds2[3].text.strip()
+                except Exception as e:
+                    print(f"(情報取得一部失敗: {e})", end=" ")
+
+                # --- 試走タイムの取得 ---
                 table = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
-                
                 rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
                 trial_results = {}
                 for row in rows:
@@ -233,11 +295,20 @@ def main():
                 
                 if len(trial_results) >= 6:
                     df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
-                    df = calculate_predictions(df)
+                    
+                    # 走路状況によって「良5」か「湿5」かを判定
+                    # 「湿」「ぶち」「小雨」などのキーワードがあれば「湿5」を使用
+                    prefix = "良5"
+                    if any(x in info_dict["走路状況"] for x in ["湿", "ぶち", "濡"]):
+                        prefix = "湿5"
+                    elif "雨" in info_dict["天候"]:
+                        prefix = "湿5"
+
+                    df = calculate_predictions(df, weather_prefix=prefix)
                     
                     df.to_csv(file, index=False, encoding="utf-8-sig")
-                    print("成功・予想完了")
-                    print_betting_guide(df, place, race_no)
+                    print(f"成功 ({prefix}モード)・予想完了")
+                    print_betting_guide(df, place, race_no, info_dict)
                 else:
                     print("未更新のためスキップ")
                 
