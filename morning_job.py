@@ -173,7 +173,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(1, 2):
+            for r in range(1, 13):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -212,11 +212,12 @@ def main():
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, recent10_cols, "近10走")
 
                     f_map = {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6, "平近順": 7, "近況": 8, "2連対率": 9}
-                    for sub_id in ["good5", "wet5"]:
-                        l_prefix = "良5" if sub_id == "good5" else "湿5"
+                    for sub_id in ["good5", "wet5", "han5"]:
+                        l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
 
                     # --- 全詳細データ取得（復元部分） ---
+                    """
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,"90(近10)_各着順":6, 
                         "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, 
@@ -232,6 +233,7 @@ def main():
                         "今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, 
                         "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10
                     }, "今年/通算")
+                    """
 
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     df = add_predictions(df)
