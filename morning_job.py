@@ -114,6 +114,8 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
+#取得レースを調整(テスト用)
+            
             for r in range(1, 2):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
