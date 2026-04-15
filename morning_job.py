@@ -82,30 +82,24 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
 def add_predictions(df):
     """
     3100m追い抜き計算ロジック:
-    1. 仮想試走算出: 
-       各セルの文字列（例: "04/07飯 6着1R 3.503 3.46 ST 0.17"）から
-       試走タイム(3.46)を抽出し、前1～前5で平均をとる。
+    1. 仮想試走タイム決定 (前1～前5の平均、無ければ3.40)
     2. 1号車補正 (-0.01)
-    3. 予想競走タイム算出 (小数点第3位丸め・表示)
-    4. 仮想ゴール時間算出 (小数点第2位丸め)
+    3. 予想競走タイム算出 (仮想試走 + 個別偏差、小数点第3位表示)
     """
     def extract_shiso(val):
-        """文字列の中から試走タイム（後ろから2番目の数値）を抽出する"""
         if pd.isna(val) or val == "-": return None
-        # 数値（d.ddd または d.dd）をすべて見つける
         nums = re.findall(r'\d+\.\d+', str(val))
-        # 画像の形式だと [競走タイム, 試走タイム, ST] の順になるため、
-        # 要素が2つ以上あれば最後から2番目が試走タイム、1つならそれを試走とする
-        if len(nums) >= 2:
-            return float(nums[-2])
-        elif len(nums) == 1:
-            return float(nums[0])
+        if len(nums) >= 2: return float(nums[-2])
+        elif len(nums) == 1: return float(nums[0])
         return None
 
     def get_deviation(val):
-        """偏差カラムから数値だけ抜く用"""
-        res = re.findall(r'\d+\.\d+', str(val))
-        return float(res[0]) if res else None
+        """偏差（例: '061'）を数値（0.061）に変換。各選手固有の値を反映"""
+        if pd.isna(val) or val == "-": return 0.070
+        s = re.sub(r'\D', '', str(val))
+        if len(s) == 3: return float(f"0.{s}")
+        elif len(s) > 0: return float(f"0.{s.zfill(3)}")
+        return 0.070
 
     for condition in ['良', '湿']:
         goal_arrival_times = []
@@ -114,7 +108,7 @@ def add_predictions(df):
         for idx_row, row in df.iterrows():
             car_no = str(row.get("車", ""))
             
-            # --- 1. 仮想試走タイムの算出 (前1～前5の有効データ平均) ---
+            # --- 1. 仮想試走タイムの算出 (前1～前5の平均) ---
             past_shiso_list = []
             for i in range(1, 6):
                 s_val = extract_shiso(row.get(f"{prefix}_前{i}"))
@@ -124,7 +118,6 @@ def add_predictions(df):
             if past_shiso_list:
                 v_shiso = sum(past_shiso_list) / len(past_shiso_list)
             else:
-                # 前1～5が1つも無い場合のバックアップ
                 if condition == '湿':
                     dry_list = [extract_shiso(row.get(f"良5_前{i}")) for i in range(1, 6) if extract_shiso(row.get(f"良5_前{i}")) is not None]
                     base_val = sum(dry_list) / len(dry_list) if dry_list else 3.40
@@ -136,25 +129,25 @@ def add_predictions(df):
             if car_no == "1":
                 v_shiso -= 0.01
             
-            # --- 2. 100mあたりの速度の算出 ---
-            hensa = get_deviation(row.get("偏差")) or 0.070
+            # --- 2. 予想競走タイムの算出 (個別偏差を適用) ---
+            hensa = get_deviation(row.get("偏差"))
             agari_100m = v_shiso + hensa
-            v_sec = 100 / agari_100m
             
             # --- 3. 3100mシミュレーション ---
             h_str = str(row.get("ハンデ", "0"))
             handi = float(re.sub(r'\D', '', h_str)) if re.sub(r'\D', '', h_str) else 0
             
+            v_sec = 100 / agari_100m
             total_distance = 3100 + handi
             arrival_time = total_distance / v_sec
             
-            # 結果の格納 (小数点第3位まで、0埋めあり)
+            # 小数点第3位まで文字列として保持 (末尾0も表示)
             df.at[idx_row, f'予想競走タイム({condition})'] = f"{agari_100m:.3f}"
             goal_arrival_times.append(round(arrival_time, 2))
 
         df[f'仮想ゴール時間({condition})'] = goal_arrival_times
         
-        # 着順・印付け
+        # 仮想ゴール時間が短い順に印
         df = df.sort_values(f'仮想ゴール時間({condition})')
         marks = ["◎", "〇", "▲", "△", "✕", " ", " ", " "]
         df[f'印({condition})'] = marks[:len(df)]
@@ -192,6 +185,7 @@ def main():
             active_places = []
 
         for place in active_places:
+            # 1RのURLをベースに各レースへ
             first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
             driver.get(first_url)
             time.sleep(4)
@@ -239,8 +233,7 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
 
-                    # --- 全詳細データ取得（復元部分） ---
-                    """
+                    # --- 全詳細データ取得（コメントアウト復元） ---
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,"90(近10)_各着順":6, 
                         "90(近10)_2連対率":7, "90(近10)_3連対率":8, "90(良10)平均試":9, 
@@ -256,7 +249,6 @@ def main():
                         "今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, 
                         "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10
                     }, "今年/通算")
-                    """
 
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     df = add_predictions(df)
