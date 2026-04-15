@@ -239,7 +239,7 @@ def main():
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
-
+"""
                     # --- 全詳細データ取得 ---
                     fetch_tab_data_by_click(driver, wait, "recent90", base_data, {
                         "90出走":2, "90優出":3, "90優勝":4, "90平均ST":5,"90(近10)_各着順":6, 
@@ -256,7 +256,7 @@ def main():
                         "今年_優出":2, "今年_優勝":3, "通算_優勝":4, "通算_1着":5, 
                         "通算_2着":6, "通算_3着":7, "通算_単勝率":8, "通算_2連対率":9, "通算_3連対率":10
                     }, "今年/通算")
-
+"""
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     df = add_predictions(df)
 
