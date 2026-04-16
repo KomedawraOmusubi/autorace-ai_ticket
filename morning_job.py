@@ -140,7 +140,7 @@ def main():
     try:
         print(f"\n--- スクレイピング開始 ({today_str}) ---", flush=True)
         driver.get("https://autorace.jp/")
-        time.sleep(5) # 読み込み待ちを延長
+        time.sleep(5)
         
         place_map = {"川口": "kawaguchi", "山陽": "sanyou", "飯塚": "iizuka", "浜松": "hamamatsu", "伊勢崎": "isesaki"}
         active_places = []
@@ -163,9 +163,8 @@ def main():
             driver.get(first_url)
             time.sleep(5)
 
-            for r in range(6, 7):
+            for r in range(7, 8):
                 try:
-                    # レース番号タブが存在するか確認
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs:
                         print(f"      {r}R 以降の番組表は見つかりませんでした。終了します。")
@@ -173,29 +172,22 @@ def main():
                     
                     if r > 1:
                         driver.execute_script("arguments[0].click();", race_tabs[0])
-                        # レース情報テーブルが更新されるまで待機
                         wait.until(EC.text_to_be_present_in_element((By.CSS_SELECTOR, "table.race-infoTable"), f"{r}R"))
                         time.sleep(3.0)
 
-                    # --- 強化版時刻取得 ---
+                    # --- 時刻取得（完全安定版） ---
                     start_time_raw = "-"
                     try:
-                        # 複数の候補からtextContentを取得して正規表現で抽出
-                        selectors = [
-                            "//div[@id='race-result-current-race-start']",
-                            "//div[contains(@class,'race-info')]//div[contains(.,':')]"
-                        ]
-                        for sel in selectors:
-                            try:
-                                elem = driver.find_element(By.XPATH, sel)
-                                content = elem.get_attribute("textContent")
-                                match = re.search(r'(\d{1,2}:\d{2})', content)
-                                if match:
-                                    start_time_raw = match.group(1)
-                                    break
-                            except: continue
-                    except: pass
-                    # --------------------
+                        wait.until(EC.presence_of_element_located((By.ID, "race-result-current-race-start")))
+                        elem = driver.find_element(By.ID, "race-result-current-race-start")
+                        content = elem.get_attribute("textContent")
+                        
+                        match = re.search(r'(\d{1,2}:\d{2})', content)
+                        if match:
+                            start_time_raw = match.group(1)
+                    except Exception as e:
+                        print(f"      [時刻取得失敗] {e}")
+                    # ------------------------------
 
                     if start_time_raw != "-":
                         race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
