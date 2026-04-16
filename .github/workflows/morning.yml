@@ -40,8 +40,8 @@ jobs:
           git config --local user.name "GitHub Action"
 
           # 正しいブランチを取得＆同期
-          git fetch origin auto_ticket_v3.3.1
-          git checkout -B auto_ticket_v3.3.1 origin/auto_ticket_v3.3.1
+          git fetch origin auto_ticket_v3.4.1
+          git checkout -B auto_ticket_v3.4.1 origin/auto_ticket_v3.4.1
 
           # CSVをすべて反映（削除含む）
           git add -A data/
@@ -49,7 +49,7 @@ jobs:
           # 差分があればコミット＆push
           if ! git diff --cached --quiet; then
             git commit -m "Update data: $(date +'%Y-%m-%d %H:%M')"
-            git push origin auto_ticket_v3.3.1
+            git push origin auto_ticket_v3.4.1
           else
             echo "No CSV changes detected."
           fi
