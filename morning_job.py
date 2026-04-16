@@ -19,7 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # タイムゾーン設定
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
-# --- GASのURL (画像3枚目のdoPostへ送信) ---
+# --- GASのURL ---
 GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyeHqZcoqijEYlaXoNVJs-XevCvP4WaQSQLsMA-_-QUuhyEQY6wJgJWzUroJaEjibEo/exec"
 
 def get_driver():
@@ -131,7 +131,6 @@ def main():
         try: os.remove(f)
         except: pass
 
-    # ここでJSTの現在時刻を取得
     now_jst = datetime.datetime.now(TOKYO_TZ)
     today_str = now_jst.strftime("%Y-%m-%d")
     driver = get_driver()
@@ -175,19 +174,13 @@ def main():
                             race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
                             race_time = TOKYO_TZ.localize(race_time_obj)
                             
-                            # --- 時刻調整ロジック（修正済み） ---
+                            # --- 時刻調整ロジック（常に15分前をセット） ---
+                            # 未来のレースであれば、無条件で15分前を予約リストに追加
                             if now_jst < race_time:
                                 trigger_time = race_time - datetime.timedelta(minutes=15)
-                                
-                                # すでに15分前を過ぎている場合は、今から2分後に実行
-                                if trigger_time <= now_jst:
-                                    final_trigger = now_jst + datetime.timedelta(minutes=2)
-                                else:
-                                    final_trigger = trigger_time
-                                
-                                target_time_str = final_trigger.strftime("%Y-%m-%dT%H:%M:00")
+                                target_time_str = trigger_time.strftime("%Y-%m-%dT%H:%M:00")
                                 target_times.append(target_time_str)
-                                print(f"      [予約登録] 発走:{start_time_raw} -> 実行予定:{final_trigger.strftime('%H:%M:%S')}")
+                                print(f"      [予約登録] {place} {r}R: 発走 {start_time_raw} -> 実行予定 {trigger_time.strftime('%H:%M:%S')}")
                     except Exception as e:
                         print(f"      [時刻解析失敗] {e}")
                         start_time_raw = "-"
