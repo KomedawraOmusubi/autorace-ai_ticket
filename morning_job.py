@@ -131,6 +131,7 @@ def main():
         try: os.remove(f)
         except: pass
 
+    # ここでJSTの現在時刻を取得
     now_jst = datetime.datetime.now(TOKYO_TZ)
     today_str = now_jst.strftime("%Y-%m-%d")
     driver = get_driver()
@@ -157,7 +158,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(3, 4):
+            for r in range(1, 13):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -173,11 +174,22 @@ def main():
                         if ":" in start_time_raw:
                             race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
                             race_time = TOKYO_TZ.localize(race_time_obj)
+                            
+                            # --- 時刻調整ロジック（修正済み） ---
                             if now_jst < race_time:
                                 trigger_time = race_time - datetime.timedelta(minutes=15)
-                                if trigger_time > now_jst:
-                                    target_times.append(trigger_time.strftime("%Y-%m-%dT%H:%M:00"))
-                    except:
+                                
+                                # すでに15分前を過ぎている場合は、今から2分後に実行
+                                if trigger_time <= now_jst:
+                                    final_trigger = now_jst + datetime.timedelta(minutes=2)
+                                else:
+                                    final_trigger = trigger_time
+                                
+                                target_time_str = final_trigger.strftime("%Y-%m-%dT%H:%M:00")
+                                target_times.append(target_time_str)
+                                print(f"      [予約登録] 発走:{start_time_raw} -> 実行予定:{final_trigger.strftime('%H:%M:%S')}")
+                    except Exception as e:
+                        print(f"      [時刻解析失敗] {e}")
                         start_time_raw = "-"
 
                     race_no_str = str(r).zfill(2)
@@ -214,16 +226,10 @@ def main():
 
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, {f"近10_{i-1}": i for i in range(2, 12)}, "近10走")
 
-                    
-    
-
                     f_map = {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6, "平近順位": 7, "近況": 8, "2連対率": 9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
-
-                    #
-
                     
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     if not df.empty:
@@ -244,11 +250,11 @@ def main():
                 except:
                     continue
 
-        # --- GAS送信 (画像3枚目の仕様に合致させる) ---
+        # --- GAS送信 ---
         if target_times:
             try:
-                # GAS側の doPOST 内で const timeList = params.times; となっているため
-                payload = json.dumps({"times": list(set(target_times))})
+                unique_times = list(set(target_times))
+                payload = json.dumps({"times": unique_times})
                 resp = requests.post(GAS_WEBAPP_URL, data=payload, headers={'Content-Type': 'application/json'}, timeout=15)
                 print(f"\n--- GAS予約送信完了: {resp.text} ---")
             except Exception as e:
