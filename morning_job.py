@@ -19,7 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # タイムゾーン設定
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
-# --- GASのURL ---
+# --- GASのURL (画像3枚目のdoPostへ送信) ---
 GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyeHqZcoqijEYlaXoNVJs-XevCvP4WaQSQLsMA-_-QUuhyEQY6wJgJWzUroJaEjibEo/exec"
 
 def get_driver():
@@ -53,7 +53,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                 target_tab = driver.find_element(By.XPATH, f"//*[@data-program-submenu='{submenu_id}']")
                 driver.execute_script("arguments[0].click();", target_tab)
             wait.until(EC.presence_of_element_located((By.ID, container_id)))
-            time.sleep(random.uniform(2.5, 4.5))
+            time.sleep(random.uniform(2.0, 4.0))
 
         container = driver.find_element(By.ID, container_id)
         target_table = container.find_element(By.CSS_SELECTOR, "table.liveTable")
@@ -134,75 +134,54 @@ def main():
     now_jst = datetime.datetime.now(TOKYO_TZ)
     today_str = now_jst.strftime("%Y-%m-%d")
     driver = get_driver()
-    wait = WebDriverWait(driver, 25)
+    wait = WebDriverWait(driver, 20)
     target_times = [] 
 
     try:
         print(f"\n--- スクレイピング開始 ({today_str}) ---", flush=True)
         driver.get("https://autorace.jp/")
-        time.sleep(5)
+        time.sleep(3)
         
         place_map = {"川口": "kawaguchi", "山陽": "sanyou", "飯塚": "iizuka", "浜松": "hamamatsu", "伊勢崎": "isesaki"}
         active_places = []
         try:
             wait.until(EC.presence_of_element_located((By.CLASS_NAME, "todayRaceSection")))
             page_text = driver.find_element(By.CLASS_NAME, "todayRaceSection").text
-            print(f"[サイト確認] 今日の開催状況:\n{page_text}")
             for jp_name, en_name in place_map.items():
                 if jp_name in page_text: active_places.append(en_name)
             active_places = list(dict.fromkeys(active_places))
-        except Exception as e:
-            print(f"[警告] 開催場所の特定に失敗しました: {e}")
-            active_places = []
-
-        print(f"[特定された開催地] {active_places}")
+        except: active_places = []
 
         for place in active_places:
             first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
-            print(f"\n>>> 開催地アクセス: {place}")
             driver.get(first_url)
-            time.sleep(5)
+            time.sleep(4)
 
-            for r in range(7, 8):
+            for r in range(1, 2):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
-                    if not race_tabs:
-                        print(f"      {r}R 以降の番組表は見つかりませんでした。終了します。")
-                        break
-                    
+                    if not race_tabs: break
                     if r > 1:
                         driver.execute_script("arguments[0].click();", race_tabs[0])
-                        wait.until(EC.text_to_be_present_in_element((By.CSS_SELECTOR, "table.race-infoTable"), f"{r}R"))
-                        time.sleep(3.0)
+                        time.sleep(random.uniform(3.5, 6.0))
 
-                    # --- 時刻取得（完全安定版） ---
-                    start_time_raw = "-"
                     try:
                         wait.until(EC.presence_of_element_located((By.ID, "race-result-current-race-start")))
-                        elem = driver.find_element(By.ID, "race-result-current-race-start")
-                        content = elem.get_attribute("textContent")
+                        raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
+                        start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
                         
-                        match = re.search(r'(\d{1,2}:\d{2})', content)
-                        if match:
-                            start_time_raw = match.group(1)
-                    except Exception as e:
-                        print(f"      [時刻取得失敗] {e}")
-                    # ------------------------------
-
-                    if start_time_raw != "-":
-                        race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
-                        race_time = TOKYO_TZ.localize(race_time_obj)
-                        if now_jst < race_time:
-                            trigger_time = race_time - datetime.timedelta(minutes=15)
-                            final_trigger = max(now_jst + datetime.timedelta(minutes=2), trigger_time)
-                            target_time_str = final_trigger.strftime("%Y-%m-%dT%H:%M:00")
-                            target_times.append(target_time_str)
-                            print(f"      [{place} {r}R] 発走予定: {start_time_raw} -> 実行予約: {final_trigger.strftime('%H:%M:%S')}")
-                    else:
-                        print(f"      [{place} {r}R] 時刻が見つかりませんでしたがデータを取得します。")
+                        if ":" in start_time_raw:
+                            race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
+                            race_time = TOKYO_TZ.localize(race_time_obj)
+                            if now_jst < race_time:
+                                trigger_time = race_time - datetime.timedelta(minutes=15)
+                                if trigger_time > now_jst:
+                                    target_times.append(trigger_time.strftime("%Y-%m-%dT%H:%M:00"))
+                    except:
+                        start_time_raw = "-"
 
                     race_no_str = str(r).zfill(2)
-                    print(f"      [{place} {r}R] データ取得中...", flush=True)
+                    print(f"\n  ===[ {place} {r}R ]===", flush=True)
 
                     grade_val, date_val, race_val, dist_val = ["-"] * 4
                     try:
@@ -235,10 +214,16 @@ def main():
 
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, {f"近10_{i-1}": i for i in range(2, 12)}, "近10走")
 
+                    
+    
+
                     f_map = {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6, "平近順位": 7, "近況": 8, "2連対率": 9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
+
+                    #
+
                     
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     if not df.empty:
@@ -255,15 +240,15 @@ def main():
                         df.insert(5, '発走予定', start_time_raw)
                         
                         df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
-                        print(f"      => {place} {r}R 保存完了。", flush=True)
-                except Exception as ex:
-                    print(f"      [!] {place} {r}R でエラーが発生しましたが続行します: {ex}")
+                        print(f"  => {place} {r}R 保存完了。", flush=True)
+                except:
                     continue
 
+        # --- GAS送信 (画像3枚目の仕様に合致させる) ---
         if target_times:
             try:
-                unique_times = list(set(target_times))
-                payload = json.dumps({"times": unique_times})
+                # GAS側の doPOST 内で const timeList = params.times; となっているため
+                payload = json.dumps({"times": list(set(target_times))})
                 resp = requests.post(GAS_WEBAPP_URL, data=payload, headers={'Content-Type': 'application/json'}, timeout=15)
                 print(f"\n--- GAS予約送信完了: {resp.text} ---")
             except Exception as e:
