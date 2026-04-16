@@ -162,9 +162,18 @@ def main():
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
                     if r > 1:
+                        old_time = driver.find_element(By.ID, "race-result-current-race-start").text
+    
                         driver.execute_script("arguments[0].click();", race_tabs[0])
-                        time.sleep(random.uniform(3.5, 6.0))
+                        
+                        # 「前の時刻と違うテキスト」が表示されるまで待つ（最大10秒）
+                        wait.until(lambda d: d.find_element(By.ID, "race-result-current-race-start").text != old_time)
 
+
+
+
+    
+    
                     try:
                         wait.until(EC.presence_of_element_located((By.ID, "race-result-current-race-start")))
                         raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
