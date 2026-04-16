@@ -154,7 +154,7 @@ def main():
         except: active_places = []
 
         for place in active_places:
-            for r in range(1, 13):
+            for r in range(8, 9):
                 # ★ レースごとにURLを直接叩く
                 race_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}/program"
                 driver.get(race_url)
