@@ -157,7 +157,7 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(5, 6):
+            for r in range(6, 7):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
@@ -166,28 +166,36 @@ def main():
                         time.sleep(random.uniform(3.5, 6.0))
 
                     try:
-                        # ★ここだけ修正
-                        elem = WebDriverWait(driver, 20).until(
-                            EC.visibility_of_element_located((By.XPATH, "//div[contains(text(),'発走予定') and contains(.,':')]"))
-                        )
-                        raw_time_text = elem.text
-                        start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
+                        # --- 時刻取得ロジック修正 ---
+                        selectors = [
+                            "//div[@id='race-result-current-race-start']",
+                            "//*[contains(text(),'発走予定')]"
+                        ]
+                        start_time_raw = "-"
+                        for xpath in selectors:
+                            try:
+                                elem = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, xpath)))
+                                text_content = elem.get_attribute("innerText")
+                                if not text_content:
+                                    text_content = elem.find_element(By.XPATH, "./..").get_attribute("innerText")
+                                match = re.search(r'(\d{1,2}:\d{2})', text_content)
+                                if match:
+                                    start_time_raw = match.group(1)
+                                    break
+                            except: continue
                         
-                        if ":" in start_time_raw:
+                        if start_time_raw != "-":
                             race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
                             race_time = TOKYO_TZ.localize(race_time_obj)
-                            
                             if now_jst < race_time:
                                 trigger_time = race_time - datetime.timedelta(minutes=15)
-                                
-                                if trigger_time <= now_jst:
-                                    final_trigger = now_jst + datetime.timedelta(minutes=2)
-                                else:
-                                    final_trigger = trigger_time
-                                
+                                final_trigger = max(now_jst + datetime.timedelta(minutes=2), trigger_time)
                                 target_time_str = final_trigger.strftime("%Y-%m-%dT%H:%M:00")
                                 target_times.append(target_time_str)
                                 print(f"      [予約登録] 発走:{start_time_raw} -> 実行予定:{final_trigger.strftime('%H:%M:%S')}")
+                        else:
+                            print(f"      [時刻解析失敗] 時刻が見つかりませんでした。")
+                        # ---------------------------
                     except Exception as e:
                         print(f"      [時刻解析失敗] {e}")
                         start_time_raw = "-"
