@@ -97,7 +97,7 @@ def calculate_predictions(df, weather_prefix="良5"):
             df[f'temp_順位_{i}'] = metrics.apply(lambda x: x[3])
 
     # 数値変換
-    num_cols = ['試走T', 'ハンデ', '偏差', '良5順位']
+    num_cols = ['試走T', 'ハンデ', '偏差', '良5平均順位']
     for col in num_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -157,7 +157,7 @@ def calculate_predictions(df, weather_prefix="良5"):
     df['タイム評価'] = df['タイム順位'].apply(lambda x: max(0, 60 - (x * 10)) if not pd.isna(x) else 0)
 
     # 実績評価
-    if '良5順位' in df.columns:
+    if '良5平均順位' in df.columns:
         df['実績評価'] = df['良5順位'].rank(method='min').apply(lambda x: max(0, 30 - (x * 5)) if not pd.isna(x) else 0)
     else:
         df['実績評価'] = 0
