@@ -19,7 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # タイムゾーン設定
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
-# --- GASのURL (画像3枚目のdoPostへ送信) ---
+# --- GASのURL ---
 GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyeHqZcoqijEYlaXoNVJs-XevCvP4WaQSQLsMA-_-QUuhyEQY6wJgJWzUroJaEjibEo/exec"
 
 def get_driver():
@@ -44,6 +44,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
         print(f"      >>> [処理開始] {label} (ID: {submenu_id})", flush=True)
     try:
         container_id = f"live-program-{submenu_id}-container"
+        # URLで直接ページを開いているので、最初の'program'タブはクリック不要（force_clickがFalseなら）
         if submenu_id != "program" or force_click:
             xpath = f"//*[@data-program-submenu='{submenu_id}']//a"
             try:
@@ -53,7 +54,7 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                 target_tab = driver.find_element(By.XPATH, f"//*[@data-program-submenu='{submenu_id}']")
                 driver.execute_script("arguments[0].click();", target_tab)
             wait.until(EC.presence_of_element_located((By.ID, container_id)))
-            time.sleep(random.uniform(2.0, 4.0))
+            time.sleep(random.uniform(1.5, 3.0))
 
         container = driver.find_element(By.ID, container_id)
         target_table = container.find_element(By.CSS_SELECTOR, "table.liveTable")
@@ -153,18 +154,15 @@ def main():
         except: active_places = []
 
         for place in active_places:
-            first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
-            driver.get(first_url)
-            time.sleep(4)
+            for r in range(1, 13):
+                # ★ レースごとにURLを直接叩く
+                race_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}/program"
+                driver.get(race_url)
+                print(f"\n  ===[ {place} {r}R 読込中... ]===", flush=True)
+                time.sleep(random.uniform(4.0, 6.0))
 
-            for r in range(2, 3):
                 try:
-                    race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
-                    if not race_tabs: break
-                    if r > 1:
-                        driver.execute_script("arguments[0].click();", race_tabs[0])
-                        time.sleep(random.uniform(3.5, 6.0))
-
+                    # この時点で既にそのレースのページなので、発走時刻を取得
                     try:
                         wait.until(EC.presence_of_element_located((By.ID, "race-result-current-race-start")))
                         raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
@@ -181,8 +179,6 @@ def main():
                         start_time_raw = "-"
 
                     race_no_str = str(r).zfill(2)
-                    print(f"\n  ===[ {place} {r}R ]===", flush=True)
-
                     grade_val, date_val, race_val, dist_val = ["-"] * 4
                     try:
                         grade_val = driver.find_element(By.CSS_SELECTOR, "#race-result-race-info h3").text.strip()
@@ -195,8 +191,9 @@ def main():
                                 dist_val = tds1[2].text.strip()
                     except: pass
 
+                    # 詳細データはタブクリックで取得
                     base_data = {str(i): {} for i in range(1, 9)}
-                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
+                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=False)
                     
                     for car_no, row_data in base_data.items():
                         raw_text = row_data.get("_raw_info", "")
@@ -214,16 +211,10 @@ def main():
 
                     fetch_tab_data_by_click(driver, wait, "recent10", base_data, {f"近10_{i-1}": i for i in range(2, 12)}, "近10走")
 
-                    
-    
-
                     f_map = {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6, "平近順位": 7, "近況": 8, "2連対率": 9}
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
-
-                    #
-
                     
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     if not df.empty:
@@ -241,13 +232,13 @@ def main():
                         
                         df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
                         print(f"  => {place} {r}R 保存完了。", flush=True)
-                except:
+                except Exception as e:
+                    print(f"  [エラー] {place} {r}R 処理スキップ: {e}")
                     continue
 
-        # --- GAS送信 (画像3枚目の仕様に合致させる) ---
+        # --- GAS送信 ---
         if target_times:
             try:
-                # GAS側の doPOST 内で const timeList = params.times; となっているため
                 payload = json.dumps({"times": list(set(target_times))})
                 resp = requests.post(GAS_WEBAPP_URL, data=payload, headers={'Content-Type': 'application/json'}, timeout=15)
                 print(f"\n--- GAS予約送信完了: {resp.text} ---")
