@@ -166,8 +166,11 @@ def main():
                         time.sleep(random.uniform(3.5, 6.0))
 
                     try:
-                        wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(),'発走予定')]")))
-                        raw_time_text = driver.find_element(By.XPATH, "(//div[contains(text(),'発走予定')])[1]").text
+                        # ★ここだけ修正
+                        elem = WebDriverWait(driver, 20).until(
+                            EC.visibility_of_element_located((By.XPATH, "//div[contains(text(),'発走予定') and contains(.,':')]"))
+                        )
+                        raw_time_text = elem.text
                         start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
                         
                         if ":" in start_time_raw:
