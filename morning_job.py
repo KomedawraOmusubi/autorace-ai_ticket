@@ -19,7 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # タイムゾーン設定
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
-# --- GASのURL (画像3枚目のdoPostへ送信) ---
+# --- GASのURL ---
 GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyeHqZcoqijEYlaXoNVJs-XevCvP4WaQSQLsMA-_-QUuhyEQY6wJgJWzUroJaEjibEo/exec"
 
 def get_driver():
@@ -157,29 +157,29 @@ def main():
             driver.get(first_url)
             time.sleep(4)
 
-            for r in range(5, 6):
+            for r in range(6, 7):
                 try:
                     race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
                     if not race_tabs: break
                     if r > 1:
                         driver.execute_script("arguments[0].click();", race_tabs[0])
-                        time.sleep(random.uniform(3.5, 6.0))
+                        # レース切り替え完了まで、テーブル内のレース番号表示が更新されるのを待つ
+                        wait.until(EC.text_to_be_present_in_element((By.CSS_SELECTOR, "table.race-infoTable"), f"{r}R"))
+                        time.sleep(2.0)
 
                     try:
-                        # --- 強化版 時刻取得ロジック ---
+                        # --- 修正版 時刻取得ロジック ---
                         start_time_raw = "-"
-                        # 複数のアプローチで時刻を探す
-                        methods = [
-                            "//div[@id='race-result-current-race-start']", # ID直接
-                            "//*[contains(text(),'発走予定')]/..",           # ラベルの親要素
-                            "//div[contains(@class,'race-info')]//div"     # 汎用的な枠
+                        # 確実に現在のレース情報を指す要素からテキストを取得
+                        selectors = [
+                            "//div[@id='race-result-current-race-start']",
+                            "//div[contains(@class,'race-info')]//div[contains(.,':')]"
                         ]
-                        
-                        for m in methods:
+                        for sel in selectors:
                             try:
-                                target_elem = driver.find_element(By.XPATH, m)
-                                raw_txt = target_elem.get_attribute("textContent") # hidden textも取得
-                                match = re.search(r'(\d{1,2}:\d{2})', raw_txt)
+                                elem = driver.find_element(By.XPATH, sel)
+                                txt = elem.get_attribute("textContent")
+                                match = re.search(r'(\d{1,2}:\d{2})', txt)
                                 if match:
                                     start_time_raw = match.group(1)
                                     break
@@ -193,12 +193,12 @@ def main():
                                 final_trigger = max(now_jst + datetime.timedelta(minutes=2), trigger_time)
                                 target_time_str = final_trigger.strftime("%Y-%m-%dT%H:%M:00")
                                 target_times.append(target_time_str)
-                                print(f"      [時刻取得成功] {start_time_raw} (予約:{final_trigger.strftime('%H:%M:%S')})")
+                                print(f"      [取得成功] {r}R 発走:{start_time_raw}")
                         else:
-                            print(f"      [時刻取得失敗] ページから時刻を抽出できませんでした。")
-                        # ---------------------------
+                            print(f"      [取得失敗] {r}R の時刻が見つかりません。")
+                        # ----------------------------
                     except Exception as e:
-                        print(f"      [エラー] 時刻解析中に例外発生: {e}")
+                        print(f"      [エラー] 時刻解析: {e}")
                         start_time_raw = "-"
 
                     race_no_str = str(r).zfill(2)
@@ -259,7 +259,6 @@ def main():
                 except:
                     continue
 
-        # --- GAS送信 ---
         if target_times:
             try:
                 unique_times = list(set(target_times))
