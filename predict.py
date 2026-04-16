@@ -269,12 +269,17 @@ def main():
                 file_name_only = os.path.basename(file).replace(".csv", "")
                 parts = file_name_only.split("_")
                 
-                if len(parts) >= 4:
-                    place = parts[2]
-                    race_no = parts[3].replace("R", "")
+                if len(parts) >= 3:
+                    place = parts[-2]
+                    race_no = parts[-1].replace("R", "")
                     target_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
                 else:
                     continue
+
+
+
+
+                
 
                 print(f"取得中: {place} {race_no}R...", end=" ", flush=True)
                 
