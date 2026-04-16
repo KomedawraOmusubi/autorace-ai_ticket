@@ -20,6 +20,8 @@ TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
 # Discord Webhook設定 (GitHub Secretsから取得)
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+# GASのウェブアプリURL (リトライ停止用)
+GAS_WEBAPP_URL = os.environ.get("GAS_WEBAPP_URL")
 
 def send_discord_message(content):
     """Discordにメッセージを送信する"""
@@ -33,6 +35,23 @@ def send_discord_message(content):
         response.raise_for_status()
     except Exception as e:
         print(f"Discord送信エラー: {e}")
+
+def notify_gas_completion(place, race_no):
+    """GASに予想完了を通知し、リトライを停止させる"""
+    if not GAS_WEBAPP_URL:
+        print("Warning: GAS_WEBAPP_URL is not set. Skipping notification.")
+        return
+    
+    data = {
+        "action": "complete",
+        "place": place,
+        "race_no": race_no
+    }
+    try:
+        response = requests.post(GAS_WEBAPP_URL, json=data)
+        print(f"GAS完了通知送信: {response.text}")
+    except Exception as e:
+        print(f"GAS通知エラー: {e}")
 
 def get_driver():
     options = Options()
@@ -309,6 +328,9 @@ def main():
                     df.to_csv(file, index=False, encoding="utf-8-sig")
                     print(f"成功 ({prefix}モード)・予想完了")
                     print_betting_guide(df, place, race_no, info_dict)
+                    
+                    # --- 追加: GASに完了を通知してリトライを停止させる ---
+                    notify_gas_completion(place, race_no)
                 else:
                     print("未更新のためスキップ")
                 
