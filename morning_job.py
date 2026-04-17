@@ -42,21 +42,18 @@ def get_driver():
 
 def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, label="", force_click=False):
     if label:
-        print(f"      >>> [サブメニュー取得] {label} (ID: {submenu_id}) を実行中...", flush=True)
+        print(f"      >>> [タブ切替] {label} (ID: {submenu_id}) を取得中...", flush=True)
     try:
         container_id = f"live-program-{submenu_id}-container"
         if submenu_id != "program" or force_click:
             xpath = f"//*[@data-program-submenu='{submenu_id}']//a"
-            try:
-                target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-                driver.execute_script("arguments[0].click();", target_tab)
-            except:
-                target_tab = driver.find_element(By.XPATH, f"//*[@data-program-submenu='{submenu_id}']")
-                driver.execute_script("arguments[0].click();", target_tab)
+            # 「押せるようになるまで」待機
+            target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+            driver.execute_script("arguments[0].click();", target_tab)
             
-            print(f"      [操作] {label} タブをクリックしました。コンテナ出現を待機中...", flush=True)
+            # コンテナが表示されるまで待機
             wait.until(EC.presence_of_element_located((By.ID, container_id)))
-            time.sleep(random.uniform(2.0, 3.0))
+            time.sleep(random.uniform(1.5, 2.5))
 
         container = driver.find_element(By.ID, container_id)
         target_table = container.find_element(By.CSS_SELECTOR, "table.liveTable")
@@ -73,12 +70,11 @@ def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, lab
                                 if key != "_raw_info":
                                     val = val.replace("\n", " ")
                                 data_map[car_no][key] = val
-            print(f"      [成功] {label} のデータ解析完了。", flush=True)
+            print(f"      [成功] {label} 取得。", flush=True)
     except Exception as e:
-        if label: print(f"      [エラー] {label} 取得失敗: {str(e)}", flush=True)
+        if label: print(f"      [エラー] {label} 失敗: {str(e)}", flush=True)
 
 def add_predictions(df):
-    print(">>> [計算] 独自予想アルゴリズムを実行中...", flush=True)
     def extract_race_time(val):
         if pd.isna(val) or val == "-": return None
         nums = re.findall(r'\d+\.\d+', str(val))
@@ -143,69 +139,67 @@ def main():
 
     try:
         print(f"\n--- スクレイピング開始 ({today_str}) ---", flush=True)
-        print(">>> [ナビゲート] サイトトップへ移動中...", flush=True)
         driver.get("https://autorace.jp/")
         time.sleep(3)
         
         place_map = {"川口": "kawaguchi", "山陽": "sanyou", "飯塚": "iizuka", "浜松": "hamamatsu", "伊勢崎": "isesaki"}
         active_places = []
         try:
-            print(">>> [開催確認] 本日の開催場を確認中...", flush=True)
             wait.until(EC.presence_of_element_located((By.CLASS_NAME, "todayRaceSection")))
             page_text = driver.find_element(By.CLASS_NAME, "todayRaceSection").text
             for jp_name, en_name in place_map.items():
                 if jp_name in page_text: active_places.append(en_name)
             active_places = list(dict.fromkeys(active_places))
-            print(f"      [結果] アクティブな場: {active_places}", flush=True)
         except: active_places = []
 
         for place in active_places:
             first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
-            print(f"\n>>> [場所開始] {place.upper()} の情報を取得します。URL: {first_url}", flush=True)
+            print(f"\n>>> [場所開始] {place} へ移動: {first_url}", flush=True)
             driver.get(first_url)
-            time.sleep(4)
+            time.sleep(5)
 
-            for r in range(3, 4): # 1Rから12Rまで回す設定
+            # 1Rから12Rまでを順にクリックで回る
+            for r in range(1, 13):
                 try:
-                    race_tabs = driver.find_elements(By.XPATH, f"//*[@data-raceno='{r}']")
+                    # 1. レース番号タブを探す
+                    tab_xpath = f"//*[@data-raceno='{r}']"
+                    wait.until(EC.presence_of_element_located((By.XPATH, tab_xpath)))
+                    race_tabs = driver.find_elements(By.XPATH, tab_xpath)
+                    
                     if not race_tabs:
-                        print(f"      [終了] {r}Rのタブが見つからないため、この場を終了します。", flush=True)
+                        print(f"      [終了] {r}Rタブがないため終了。", flush=True)
                         break
                     
                     if r > 1:
-                        # 現在の時刻表示を保存
+                        # 2. クリック前の発走時刻を記憶（切り替わり判定用）
                         old_time = driver.find_element(By.ID, "race-result-current-race-start").text
-                        print(f"      [操作] {r}Rタブをクリックします。 (現在の表示時刻: {old_time})", flush=True)
+                        
+                        print(f"      [操作] {r}Rタブをクリックします...", flush=True)
+                        # クリック可能になるまで待ってから実行
+                        wait.until(EC.element_to_be_clickable((By.XPATH, tab_xpath)))
                         driver.execute_script("arguments[0].click();", race_tabs[0])
                         
-                        # 時刻テキストが切り替わるまで待機
-                        print(f"      [待機] {r}Rの情報に切り替わるのを待っています...", flush=True)
+                        # 3. 時刻が変わるまで待機（これで1Rのデータ混同を防ぐ）
+                        print(f"      [待機] 画面の更新を待っています...", flush=True)
                         wait.until(lambda d: d.find_element(By.ID, "race-result-current-race-start").text != old_time)
-                        print(f"      [確認] 時刻表示の更新を確認しました。", flush=True)
+                        time.sleep(2)
 
-                    # 発走予定時刻の確定
-                    try:
-                        wait.until(EC.presence_of_element_located((By.ID, "race-result-current-race-start")))
-                        raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
-                        start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
-                        print(f"\n  ===[ {place} {r}R ]=== 確定発走予定: {start_time_raw}", flush=True)
-                        
-                        if ":" in start_time_raw:
-                            race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
-                            race_time = TOKYO_TZ.localize(race_time_obj)
-                            if now_jst < race_time:
-                                trigger_time = race_time - datetime.timedelta(minutes=15)
-                                if trigger_time > now_jst:
-                                    target_times.append(trigger_time.strftime("%Y-%m-%dT%H:%M:00"))
-                    except:
-                        start_time_raw = "-"
+                    # 4. 発走予定の取得
+                    raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
+                    start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
+                    print(f"\n  ===[ {place} {r}R ]=== 予定時刻: {start_time_raw}", flush=True)
 
-                    race_no_str = str(r).zfill(2)
+                    if ":" in start_time_raw:
+                        race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
+                        race_time = TOKYO_TZ.localize(race_time_obj)
+                        if now_jst < race_time:
+                            trigger_time = race_time - datetime.timedelta(minutes=15)
+                            if trigger_time > now_jst:
+                                target_times.append(trigger_time.strftime("%Y-%m-%dT%H:%M:00"))
 
-                    # レース詳細情報の取得
+                    # レース基本情報取得
                     grade_val, date_val, race_val, dist_val = ["-"] * 4
                     try:
-                        print("      [データ] レース基本情報(グレード等)を抽出中...", flush=True)
                         grade_val = driver.find_element(By.CSS_SELECTOR, "#race-result-race-info h3").text.strip()
                         info_tables = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable")
                         if len(info_tables) >= 1:
@@ -216,12 +210,10 @@ def main():
                                 dist_val = tds1[2].text.strip()
                     except: pass
 
+                    # データ取得（出走表など各タブ）
                     base_data = {str(i): {} for i in range(1, 9)}
-                    
-                    # 各タブの巡回
                     fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
-                    print("      [データ] 選手詳細情報をパース中...", flush=True)
                     for car_no, row_data in base_data.items():
                         raw_text = row_data.get("_raw_info", "")
                         p_name, p_car, p_loc, p_gen, p_age, p_class, p_rank = ["-"] * 7
@@ -242,39 +234,32 @@ def main():
                     for sub_id in ["good5", "wet5", "han5"]:
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
-                    
-                    # データフレーム化と予測
+
+                    # 保存
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     if not df.empty:
                         df = add_predictions(df)
                         fixed_cols = ["印(良)", "印(湿)", "車", "選手名", "ハンデ", "偏差", "前日ゴール時間(良)", "前日予想競走T(良)", "前日ゴール時間(湿)", "前日予想競走T(湿)"]
                         other_cols = [c for c in df.columns if c not in fixed_cols and c not in ['場所', 'グレード', '日付', 'レース', '発走予定', '距離']]
                         df = df[fixed_cols + other_cols]
+                        df.insert(0, '場所', place); df.insert(1, 'グレード', grade_val); df.insert(2, '日付', date_val)
+                        df.insert(3, 'レース', race_val); df.insert(4, '距離', dist_val); df.insert(5, '発走予定', start_time_raw)
                         
-                        df.insert(0, '場所', place)
-                        df.insert(1, 'グレード', grade_val)
-                        df.insert(2, '日付', date_val)
-                        df.insert(3, 'レース', race_val)
-                        df.insert(4, '距離', dist_val)
-                        df.insert(5, '発走予定', start_time_raw)
-                        
-                        csv_path = f"data/race_data_{place}_{race_no_str}R.csv"
-                        df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-                        print(f"      [保存] {csv_path} 保存完了。", flush=True)
+                        race_no_str = str(r).zfill(2)
+                        df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
+                        print(f"      [保存] {place} {r}R 完了。", flush=True)
+
                 except Exception as e:
-                    print(f"      [エラー] {r}R 取得中に予期せぬエラー: {str(e)}", flush=True)
+                    print(f"      [エラー] {r}R 取得失敗: {str(e)}", flush=True)
                     continue
 
         # --- GAS送信 ---
         if target_times:
-            unique_times = list(set(target_times))
-            print(f"\n>>> [GAS送信] 予約時刻リストを送信中... ({len(unique_times)}件)", flush=True)
             try:
-                payload = json.dumps({"times": unique_times})
-                resp = requests.post(GAS_WEBAPP_URL, data=payload, headers={'Content-Type': 'application/json'}, timeout=15)
-                print(f"      [結果] GASレスポンス: {resp.text}")
-            except Exception as e:
-                print(f"      [エラー] GAS送信失敗: {e}")
+                payload = json.dumps({"times": list(set(target_times))})
+                requests.post(GAS_WEBAPP_URL, data=payload, headers={'Content-Type': 'application/json'}, timeout=15)
+                print(f"\n--- GAS送信完了 ---")
+            except: pass
 
     finally:
         driver.quit()
