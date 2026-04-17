@@ -154,7 +154,7 @@ def main():
             driver.get(first_url)
             time.sleep(5)
 
-            for r in range(3, 4):
+            for r in range(1, 13):
                 try:
                     tab_xpath = f"//*[@data-raceno='{r}']"
                     race_tabs = driver.find_elements(By.XPATH, tab_xpath)
@@ -198,14 +198,15 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6}, l_prefix)
 
-                    # ★ 発走予定の取得（表示中テーブルのみ）
+                    # ★ 発走予定の取得（レース番号一致＋待機）
                     print(f"      [最終確定] 発走予定時刻を取得中...", flush=True)
                     start_time_raw = "-"
                     try:
+                        time.sleep(2)
                         tables = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable")
                         for table in tables:
-                            if table.is_displayed():
-                                text = table.text.replace("\n", " ")
+                            text = table.text.replace("\n", " ")
+                            if f"{r}R" in text:
                                 if "発走予定" in text:
                                     match = re.search(r'(\d{2}:\d{2})', text)
                                     if match:
