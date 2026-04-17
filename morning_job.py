@@ -198,21 +198,19 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6}, l_prefix)
 
-                    # ★ 発走予定の取得（修正済）
+                    # ★ 発走予定の取得（アクティブレース限定に修正）
                     print(f"      [最終確定] 発走予定時刻を取得中...", flush=True)
                     start_time_raw = "-"
                     try:
-                        wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(),'発走予定')]")))
+                        active_container = driver.find_element(By.CSS_SELECTOR, ".tab-pane.active")
+                        wait.until(lambda d: "発走予定" in active_container.text)
                         time.sleep(1)
 
-                        elems = driver.find_elements(By.XPATH, "//*[contains(text(),'発走予定')]")
-                        for el in elems:
-                            text = el.text.replace("\n", " ").strip()
-                            match = re.search(r'(\d{2}:\d{2})', text)
-                            if match:
-                                start_time_raw = match.group(1)
-                                break
-                    except:
+                        text = active_container.text.replace("\n", " ")
+                        match = re.search(r'(\d{2}:\d{2})', text)
+                        if match:
+                            start_time_raw = match.group(1)
+                    except Exception as e:
                         pass
 
                     print(f"      [結果] {start_time_raw}", flush=True)
