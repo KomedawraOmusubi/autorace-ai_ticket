@@ -198,16 +198,21 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6}, l_prefix)
 
-                    # ★ 発走予定の取得（ここだけ修正）
+                    # ★ 発走予定の取得（レース番号ベースで取得に変更）
                     print(f"      [最終確定] 発走予定時刻を取得中...", flush=True)
                     start_time_raw = "-"
                     try:
-                        race_info = driver.find_element(By.ID, "race-result-race-info")
-                        text = race_info.text.replace("\n", " ").strip()
-                        match = re.search(r'発走予定.*?(\d{2}:\d{2})', text)
+                        active_tab = driver.find_element(By.XPATH, f"//*[@data-raceno='{r}']")
+                        parent = active_tab.find_element(By.XPATH, "./ancestor::*[contains(@class, 'race')]")
+
+                        text = parent.text.replace("\n", " ").strip()
+                        match = re.search(r'(\d{2}:\d{2})', text)
                         if match:
                             start_time_raw = match.group(1)
-                    except: pass
+
+                    except Exception as e:
+                        pass
+
                     print(f"      [結果] {start_time_raw}", flush=True)
 
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
