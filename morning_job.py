@@ -154,7 +154,7 @@ def main():
             driver.get(first_url)
             time.sleep(5)
 
-            for r in range(1, 13):
+            for r in range(3, 4):
                 try:
                     tab_xpath = f"//*[@data-raceno='{r}']"
                     race_tabs = driver.find_elements(By.XPATH, tab_xpath)
