@@ -150,7 +150,7 @@ def main():
 
         for place in active_places:
             first_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_1/program"
-            print(f"\n>>> [会場] {place} へ移動", flush=True)
+            print(f"\n>>> [会場移動] {place} を処理中...", flush=True)
             driver.get(first_url)
             time.sleep(5)
 
@@ -167,11 +167,10 @@ def main():
                         driver.execute_script("arguments[0].click();", race_tabs[0])
                         time.sleep(3)
 
-                    # 先に表データを取得して時間を稼ぐ
+                    # 先にデータを取って時間を稼ぐ
                     base_data = {str(i): {} for i in range(1, 9)}
                     fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
-                    # 共通情報の取得
                     dist_val = "-"
                     try:
                         info_tables = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable")
@@ -200,31 +199,24 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6}, l_prefix)
 
-                    # ★ 最後に発走予定を取得（厳密なクラス指定に変更）
-                    print(f"      [最終確定] 発走予定を取得中...", flush=True)
+                    # ★ 発走予定の取得（col-6 クラス内のテキストを全スキャン）
+                    print(f"      [最終確定] 発走予定時刻を取得中...", flush=True)
+                    start_time_raw = "-"
                     try:
-                        # 全体IDではなく、今表示されているヘッダーエリアから抽出
-                        race_header = driver.find_element(By.CLASS_NAME, "race-result-race-info-top")
-                        header_text = race_header.text
-                        # 「発走予定 00:00」の形式を正規表現で抜く
-                        match = re.search(r'発走予定\s*(\d{2}:\d{2})', header_text)
-                        if match:
-                            start_time_raw = match.group(1)
-                        else:
-                            # 予備手段
-                            start_time_raw = driver.find_element(By.ID, "race-result-current-race-start").text.replace("発走予定", "").strip()
-                        
-                        print(f"      [結果] {start_time_raw}", flush=True)
-                        
-                        if ":" in start_time_raw:
-                            race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
-                            race_time = TOKYO_TZ.localize(race_time_obj)
-                            if now_jst < race_time:
-                                target_times.append((race_time - datetime.timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:00"))
-                    except:
-                        start_time_raw = "-"
+                        # col-6 クラスを持つ要素をすべて取得
+                        cols = driver.find_elements(By.CLASS_NAME, "col-6")
+                        for c in cols:
+                            text = c.text.replace("\n", " ").strip()
+                            # 「発走予定」という文字が含まれていたら、その中の時刻を抜く
+                            if "発走予定" in text:
+                                match = re.search(r'(\d{2}:\d{2})', text)
+                                if match:
+                                    start_time_raw = match.group(1)
+                                    break
+                    except: pass
+                    print(f"      [結果] {start_time_raw}", flush=True)
 
-                    # CSV保存
+                    # 保存処理
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     if not df.empty:
                         df = add_predictions(df)
@@ -232,15 +224,26 @@ def main():
                         other_cols = [c for c in df.columns if c not in fixed_cols and c not in ['場所', 'グレード', '日付', 'レース', '発走予定', '距離']]
                         df = df[fixed_cols + other_cols]
                         
-                        # 最後の確認で最新ヘッダーを挿入
-                        grade_now = driver.find_element(By.CSS_SELECTOR, "#race-result-race-info h3").text.strip()
-                        race_now = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable tbody tr td")[1].text.strip()
+                        grade_val = driver.find_element(By.CSS_SELECTOR, "#race-result-race-info h3").text.strip()
+                        race_val = f"{r}R"
+                        try:
+                            race_val = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable tbody tr td")[1].text.strip()
+                        except: pass
 
-                        df.insert(0, '場所', place); df.insert(1, 'グレード', grade_now); df.insert(2, '日付', today_str)
-                        df.insert(3, 'レース', race_now); df.insert(4, '距離', dist_val); df.insert(5, '発走予定', start_time_raw)
+                        df.insert(0, '場所', place); df.insert(1, 'グレード', grade_val); df.insert(2, '日付', today_str)
+                        df.insert(3, 'レース', race_val); df.insert(4, '距離', dist_val); df.insert(5, '発走予定', start_time_raw)
                         
                         df.to_csv(f"data/race_data_{place}_{str(r).zfill(2)}R.csv", index=False, encoding="utf-8-sig")
                         print(f"      [完了] {place} {r}R 保存。", flush=True)
+
+                        if ":" in start_time_raw:
+                            try:
+                                race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
+                                race_time = TOKYO_TZ.localize(race_time_obj)
+                                if now_jst < race_time:
+                                    target_times.append((race_time - datetime.timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:00"))
+                            except: pass
+
                 except Exception as e:
                     print(f"      [エラー] {r}R スキップ: {e}", flush=True)
 
