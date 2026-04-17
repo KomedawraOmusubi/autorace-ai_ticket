@@ -167,7 +167,6 @@ def main():
                         driver.execute_script("arguments[0].click();", race_tabs[0])
                         time.sleep(3)
 
-                    # 先にデータを取って時間を稼ぐ
                     base_data = {str(i): {} for i in range(1, 9)}
                     fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=(r > 1))
                     
@@ -199,24 +198,18 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6}, l_prefix)
 
-                    # ★ 発走予定の取得（col-6 クラス内のテキストを全スキャン）
+                    # ★ 発走予定の取得（ここだけ修正）
                     print(f"      [最終確定] 発走予定時刻を取得中...", flush=True)
                     start_time_raw = "-"
                     try:
-                        # col-6 クラスを持つ要素をすべて取得
-                        cols = driver.find_elements(By.CLASS_NAME, "col-6")
-                        for c in cols:
-                            text = c.text.replace("\n", " ").strip()
-                            # 「発走予定」という文字が含まれていたら、その中の時刻を抜く
-                            if "発走予定" in text:
-                                match = re.search(r'(\d{2}:\d{2})', text)
-                                if match:
-                                    start_time_raw = match.group(1)
-                                    break
+                        race_info = driver.find_element(By.ID, "race-result-race-info")
+                        text = race_info.text.replace("\n", " ").strip()
+                        match = re.search(r'発走予定.*?(\d{2}:\d{2})', text)
+                        if match:
+                            start_time_raw = match.group(1)
                     except: pass
                     print(f"      [結果] {start_time_raw}", flush=True)
 
-                    # 保存処理
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
                     if not df.empty:
                         df = add_predictions(df)
