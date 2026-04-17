@@ -159,7 +159,7 @@ def main():
             time.sleep(5)
 
             # 1Rから12Rまでを順にクリックで回る
-            for r in range(1, 13):
+            for r in range(2, 3):
                 try:
                     # 1. レース番号タブを探す
                     tab_xpath = f"//*[@data-raceno='{r}']"
