@@ -154,7 +154,7 @@ def main():
             driver.get(first_url)
             time.sleep(5)
 
-            for r in range(1, 13):
+            for r in range(2, 3):
                 try:
                     # 1. レースタブのクリック
                     tab_xpath = f"//*[@data-raceno='{r}']"
