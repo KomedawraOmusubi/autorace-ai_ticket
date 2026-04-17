@@ -4,10 +4,9 @@ import datetime
 import pandas as pd
 import pytz
 import glob
-import random
+import numpy as np
 import re
 import requests
-import json
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -19,235 +18,367 @@ from selenium.webdriver.support import expected_conditions as EC
 # タイムゾーン設定
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
-# --- GASのURL ---
-GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyeHqZcoqijEYlaXoNVJs-XevCvP4WaQSQLsMA-_-QUuhyEQY6wJgJWzUroJaEjibEo/exec"
+# Discord Webhook設定 (GitHub Secretsから取得)
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+# GASのウェブアプリURL (リトライ停止用)
+GAS_WEBAPP_URL = os.environ.get("GAS_WEBAPP_URL")
+
+def send_discord_message(content):
+    """Discordにメッセージを送信する"""
+    if not DISCORD_WEBHOOK_URL:
+        print("Warning: DISCORD_WEBHOOK_URL is not set.")
+        return
+    
+    data = {"content": content}
+    try:
+        response = requests.post(DISCORD_WEBHOOK_URL, json=data)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Discord送信エラー: {e}")
+
+def notify_gas_completion(place, race_no):
+    """GASに予想完了を通知し、リトライを停止させる"""
+    if not GAS_WEBAPP_URL:
+        print("Warning: GAS_WEBAPP_URL is not set. Skipping notification.")
+        return
+    
+    data = {
+        "action": "complete",
+        "place": place,
+        "race_no": race_no
+    }
+    try:
+        response = requests.post(GAS_WEBAPP_URL, json=data)
+        print(f"GAS完了通知送信: {response.text}")
+    except Exception as e:
+        print(f"GAS通知エラー: {e}")
 
 def get_driver():
     options = Options()
-    options.add_argument("--headless=new")
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument('--lang=ja-JP')
-    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    options.add_argument('--blink-settings=imagesEnabled=false')
-    options.add_experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
+    options.page_load_strategy = 'eager'
+    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     return driver
 
-def fetch_tab_data_by_click(driver, wait, submenu_id, data_map, col_indices, label="", force_click=False):
-    if label:
-        print(f"      >>> [処理開始] {label} (ID: {submenu_id})", flush=True)
-    try:
-        container_id = f"live-program-{submenu_id}-container"
-        # URLで直接ページを開いているので、最初の'program'タブはクリック不要（force_clickがFalseなら）
-        if submenu_id != "program" or force_click:
-            xpath = f"//*[@data-program-submenu='{submenu_id}']//a"
-            try:
-                target_tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-                driver.execute_script("arguments[0].click();", target_tab)
-            except:
-                target_tab = driver.find_element(By.XPATH, f"//*[@data-program-submenu='{submenu_id}']")
-                driver.execute_script("arguments[0].click();", target_tab)
-            wait.until(EC.presence_of_element_located((By.ID, container_id)))
-            time.sleep(random.uniform(1.5, 3.0))
+def calculate_predictions(df, weather_prefix="良5"):
+    """
+    CSV内の「良5_前1」「湿5_前1」等のセル文字列から数値を抽出し、計算を行う
+    """
+    def extract_metrics(text):
+        if pd.isna(text) or text == "-" or str(text).strip() == "":
+            return None, None, None, None
+        
+        # 数値（競走T, 試走T, STなど）をすべて抽出
+        times = re.findall(r"\d+\.\d+", str(text))
+        # 「○着」を抽出
+        rank_match = re.search(r"(\d+)着", str(text))
+        
+        race_t = float(times[0]) if len(times) >= 1 else None
+        trial_t = float(times[1]) if len(times) >= 2 else None
+        st = float(times[2]) if len(times) >= 3 else None
+        rank = int(rank_match.group(1)) if rank_match else None
+        
+        return race_t, trial_t, st, rank
 
-        container = driver.find_element(By.ID, container_id)
-        target_table = container.find_element(By.CSS_SELECTOR, "table.liveTable")
-        if target_table:
-            rows = target_table.find_elements(By.CSS_SELECTOR, "tbody tr")
-            for row in rows:
-                cols = row.find_elements(By.TAG_NAME, "td")
-                if len(cols) >= 2:
-                    car_no = cols[0].text.strip()
-                    if car_no.isdigit() and car_no in data_map:
-                        for key, idx in col_indices.items():
-                            if idx < len(cols):
-                                val = cols[idx].text.strip()
-                                if key != "_raw_info":
-                                    val = val.replace("\n", " ")
-                                data_map[car_no][key] = val
-            print(f"      [成功] {label} 取得完了。", flush=True)
-    except Exception as e:
-        if label: print(f"      [エラー] {label} 取得失敗: {str(e)}", flush=True)
+    # 1〜3走前までのデータを抽出して新しい一時的なカラムに格納
+    for i in range(1, 4):
+        col_name = f"{weather_prefix}_前{i}"
+        if col_name in df.columns:
+            metrics = df[col_name].apply(extract_metrics)
+            df[f'temp_競走T_{i}'] = metrics.apply(lambda x: x[0])
+            df[f'temp_試走T_{i}'] = metrics.apply(lambda x: x[1])
+            df[f'temp_ST_{i}'] = metrics.apply(lambda x: x[2])
+            df[f'temp_順位_{i}'] = metrics.apply(lambda x: x[3])
 
-def add_predictions(df):
-    def extract_race_time(val):
-        if pd.isna(val) or val == "-": return None
-        nums = re.findall(r'\d+\.\d+', str(val))
-        return float(nums[0]) if len(nums) >= 1 else None
+    # 数値変換
+    num_cols = ['試走T', 'ハンデ', '偏差', '良5平均順位']
+    for col in num_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    def extract_shiso_time(val):
-        if pd.isna(val) or val == "-": return None
-        nums = re.findall(r'\d+\.\d+', str(val))
-        if len(nums) >= 2: return float(nums[-2])
-        elif len(nums) == 1: return float(nums[0])
-        return None
+    # 基本指標の計算（抽出した一時カラムを使用）
+    df['平均競走タイム'] = df[[f'temp_競走T_{i}' for i in range(1, 4)]].mean(axis=1)
+    df['平均試走'] = df[[f'temp_試走T_{i}' for i in range(1, 4)]].mean(axis=1)
+    df['平均順位'] = df[[f'temp_順位_{i}' for i in range(1, 4)]].mean(axis=1)
+    df['平均st'] = df[[f'temp_ST_{i}' for i in range(1, 4)]].mean(axis=1)
 
-    def get_deviation(val):
-        if pd.isna(val) or val == "-": return 0.070
-        s = re.sub(r'\D', '', str(val))
-        if len(s) == 3: return float(f"0.{s}")
-        elif len(s) > 0: return float(f"0.{s.zfill(3)}")
-        return 0.070
+    # 直前予想競走T の計算
+    df['直前予想競走T'] = (df['平均競走タイム'] - df['平均試走']) + df['試走T']
 
-    for condition in ['良', '湿']:
-        goal_arrival_times = []
-        col_goal = f"前日ゴール時間({condition})"
-        col_time = f"前日予想競走T({condition})"
-        for idx_row, row in df.iterrows():
-            car_no = str(row.get("車", ""))
-            dist_text = str(row.get("距離", "3100"))
-            dist_num = float(re.sub(r'\D', '', dist_text)) if re.sub(r'\D', '', dist_text) else 3100.0
+    # 上昇度（競走タイムの変化）
+    df['上昇度'] = (df['temp_競走T_3'] - df['temp_競走T_2']) + (df['temp_競走T_2'] - df['temp_競走T_1'])
+    df['上昇評価'] = df['上昇度'].apply(lambda x: 10 if (not pd.isna(x) and x > 0) else (5 if x == 0 else 0))
 
-            if condition == '湿':
-                past_race_list = [extract_race_time(row.get(f"湿5_前{i}")) for i in range(1, 4) if extract_race_time(row.get(f"湿5_前{i}"))]
-                agari_100m = sum(past_race_list) / len(past_race_list) if past_race_list else (extract_race_time(row.get("良5_前1")) or 3.47) + 0.35
-            else:
-                past_shiso_list = [extract_shiso_time(row.get(f"良5_前{i}")) for i in range(1, 4) if extract_shiso_time(row.get(f"良5_前{i}"))]
-                agari_100m = (sum(past_shiso_list) / len(past_shiso_list) if past_shiso_list else 3.40) + get_deviation(row.get("偏差"))
-            
-            if car_no == "1": agari_100m -= 0.01
-            h_str = str(row.get("ハンデ", "0"))
-            handi = float(re.sub(r'\D', '', h_str)) if re.sub(r'\D', '', h_str) else 0
-            
-            arrival_time = (dist_num + handi) / (100 / agari_100m)
-            df.at[idx_row, col_time] = f"{agari_100m:.3f}"
-            goal_arrival_times.append(round(arrival_time, 2))
-            
-        df[col_goal] = goal_arrival_times
-        df = df.sort_values(col_goal)
-        marks = ["◎", "〇", "▲", "△", "✕", " ", " ", " "]
-        df[f'印({condition})'] = marks[:len(df)]
-        df[f'予想着順({condition})'] = range(1, len(df) + 1)
-    return df.sort_values('車')
+    # 100m単価・追い上げスコア
+    df['100m単価'] = df['直前予想競走T'] / 31.0
+    df['追い上げスコア'] = 0
+    for i in range(len(df)):
+        my_unit = df.loc[i, '100m単価']
+        if pd.isna(my_unit): continue
+        followers = df.iloc[i+1:]
+        if not followers.empty:
+            faster_followers = followers[followers['100m単価'] < (my_unit - 0.01)]
+            if not faster_followers.empty:
+                df.loc[i, '追い上げスコア'] = -10
+
+    # 逃げ評価
+    df['逃げ評価'] = 0
+    for i in [0, 1, 2]: 
+        if i < len(df):
+            trial_rank = df['試走T'].rank(method='min').iloc[i]
+            if trial_rank <= 2 and df.loc[i, '平均st'] <= 0.15:
+                df.loc[i, '逃げ評価'] = 15
+
+    # 偏差評価
+    if '偏差' in df.columns:
+        median_dev = df['偏差'].median()
+        df['偏差評価'] = df['偏差'].apply(lambda x: 10 if (not pd.isna(x) and x <= median_dev) else 0)
+    else:
+        df['偏差評価'] = 0
+
+    # ST評価
+    df['ST評価'] = 0
+    if 'ハンデ' in df.columns:
+        for hd in df['ハンデ'].unique():
+            if pd.isna(hd): continue
+            mask = df['ハンデ'] == hd
+            min_st = df.loc[mask, '平均st'].min()
+            if not pd.isna(min_st):
+                df.loc[mask & (df['平均st'] == min_st), 'ST評価'] = 10
+
+    # タイム評価
+    df['タイム順位'] = df['直前予想競走T'].rank(method='min')
+    df['タイム評価'] = df['タイム順位'].apply(lambda x: max(0, 60 - (x * 10)) if not pd.isna(x) else 0)
+
+    # 実績評価
+    if '良5_平均順位' in df.columns:
+        df['実績評価'] = df['良5_平均順位'].rank(method='min').apply(lambda x: max(0, 30 - (x * 5)) if not pd.isna(x) else 0)
+    else:
+        df['実績評価'] = 0
+
+    # 最終スコア
+    df['予想スコア'] = (df['タイム評価'] + df['実績評価'] + df['偏差評価'] + 
+                        df['ST評価'] + df['上昇評価'] + df['追い上げスコア'] + df['逃げ評価'])
+    df['予想着順'] = df['予想スコア'].rank(ascending=False, method='min')
+
+    # 数値のフォーマット処理
+    target_2f_cols = ['平均競走タイム', '平均試走', '直前予想競走T']
+    for col in target_2f_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
+
+    df['平均st'] = pd.to_numeric(df['平均st'], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notnull(x) else x)
+    df['上昇度'] = pd.to_numeric(df['上昇度'].fillna(0), errors='coerce').map(lambda x: f"{x:.3f}" if pd.notnull(x) else x)
+
+    rank_cols = ['平均順位', '予想着順', 'タイム順位']
+    for c in rank_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors='coerce').round(1)
+
+    return df
+
+def print_betting_guide(df, place, race_no, info_dict):
+    sdf = df.sort_values('予想スコア', ascending=False).reset_index(drop=True)
+    top1 = int(sdf.iloc[0]['車'])
+    top2 = int(sdf.iloc[1]['車'])
+    top3 = int(sdf.iloc[2]['車'])
+    
+    ana_candidates = sdf.iloc[3:][(sdf['上昇評価'] >= 10) | (sdf['逃げ評価'] >= 15)]
+    ana = int(ana_candidates.iloc[0]['車']) if not ana_candidates.empty else None
+
+    # Discord用メッセージ構築
+    msg = []
+    msg.append(f"**【{place} {race_no}R】 直前予想・推奨買い目**")
+    msg.append(f"状況: {info_dict['天候']} / 路面:{info_dict['走路状況']}({info_dict['走路温度']}℃) / 気温:{info_dict['気温']} / 湿度:{info_dict['湿度']}")
+    msg.append("```")
+    
+    marks = ["◎", "○", "▲", "△", "注"]
+    for i in range(min(5, len(sdf))):
+        car = int(sdf.iloc[i]['車'])
+        score = float(sdf.iloc[i]['予想スコア'])
+        tags = []
+        if sdf.iloc[i]['逃げ評価'] > 0: tags.append("逃げ")
+        if sdf.iloc[i]['上昇評価'] >= 10: tags.append("上昇")
+        if sdf.iloc[i]['ST評価'] > 0: tags.append("ST速")
+        tag_str = " ".join([f"[{t}]" for t in tags])
+        msg.append(f"{marks[i]} {car}号車 (Score: {score:5.1f}) {tag_str}")
+    
+    msg.append("-" * 30)
+    msg.append(f"■ 本命 (三連単): {top1}-{top2}-{top3}, {top1}-{top3}-{top2}, {top2}-{top1}-{top3}")
+    msg.append(f"■ 本命 (二連単): {top1}-{top2}, {top2}-{top1}")
+    msg.append(f"■ 本命 (三連複): {top1}={top2}={top3}")
+    
+    if ana:
+        msg.append("-" * 30)
+        msg.append(f"■ 穴   (三連単): {ana}-{top1}-{top2}, {top1}-{ana}-{top2}")
+        msg.append(f"■ 穴   (二連単): {ana}-{top1}, {ana}-{top2}")
+        msg.append(f"■ 穴   (三連複): {ana}={top1}={top2}")
+    msg.append("```")
+    
+    final_msg = "\n".join(msg)
+    
+    # コンソール出力
+    print("\n" + final_msg)
+    # Discord送信
+    send_discord_message(final_msg)
 
 def main():
-    if not os.path.exists("data"): os.makedirs("data")
-    for f in glob.glob("data/*.csv"):
-        try: os.remove(f)
-        except: pass
+    now = datetime.datetime.now(TOKYO_TZ)
+    today_str = now.strftime("%Y-%m-%d")
+    
+    print(f"--- 徹底デバッグ開始 ---")
+    print(f"現在時刻 (JST): {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"カレントディレクトリ: {os.getcwd()}")
+    
+    csv_files = glob.glob("data/race_data_*.csv")
+    print(f"見つかったCSVファイル数: {len(csv_files)}")
+    
+    if not csv_files:
+        print("CSVファイルが data/ フォルダ内に見つかりません。パスが正しいか確認してください。")
+        return
 
-    now_jst = datetime.datetime.now(TOKYO_TZ)
-    today_str = now_jst.strftime("%Y-%m-%d")
-    driver = get_driver()
-    wait = WebDriverWait(driver, 20)
-    target_times = [] 
-
-    try:
-        print(f"\n--- スクレイピング開始 ({today_str}) ---", flush=True)
-        driver.get("https://autorace.jp/")
-        time.sleep(3)
-        
-        place_map = {"川口": "kawaguchi", "山陽": "sanyou", "飯塚": "iizuka", "浜松": "hamamatsu", "伊勢崎": "isesaki"}
-        active_places = []
+    targets = []
+    for file in csv_files:
         try:
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "todayRaceSection")))
-            page_text = driver.find_element(By.CLASS_NAME, "todayRaceSection").text
-            for jp_name, en_name in place_map.items():
-                if jp_name in page_text: active_places.append(en_name)
-            active_places = list(dict.fromkeys(active_places))
-        except: active_places = []
+            df = pd.read_csv(file)
+            print(f"\n[ファイル確認: {file}]")
+            
+            # カラム存在チェックのデバッグ
+            if '発走予定' not in df.columns:
+                print(f"-> 【スキップ】'発走予定' カラムがありません。現在のカラム: {list(df.columns)}")
+                continue
+            if '車' not in df.columns:
+                print(f"-> 【スキップ】'車' カラムがありません。")
+                continue
 
-        for place in active_places:
-            for r in range(6, 7):
-                # ★ レースごとにURLを直接叩く
-                race_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{r}/program"
-                driver.get(race_url)
-                print(f"\n  ===[ {place} {r}R 読込中... ]===", flush=True)
-                time.sleep(random.uniform(4.0, 6.0))
+            # 予想済みチェックのデバッグ (画像でカラム名が違う可能性があったため詳細に出力)
+            # もし「予想着順(良)」などの名前になっている場合に備え、部分一致で確認
+            prediction_cols = [c for c in df.columns if '予想着順' in c]
+            already_done = False
+            for c in prediction_cols:
+                if not pd.isna(df[c].iloc[0]):
+                    print(f"-> 【スキップ】カラム '{c}' に既に値が入っています: {df[c].iloc[0]}")
+                    already_done = True
+                    break
+            if already_done: continue
 
-                try:
-                    # この時点で既にそのレースのページなので、発走時刻を取得
-                    try:
-                        wait.until(EC.presence_of_element_located((By.ID, "race-result-current-race-start")))
-                        raw_time_text = driver.find_element(By.ID, "race-result-current-race-start").text
-                        start_time_raw = re.sub(r'発走予定|\[.*?\]', '', raw_time_text).strip()
-                        
-                        if ":" in start_time_raw:
-                            race_time_obj = datetime.datetime.strptime(f"{today_str} {start_time_raw}", "%Y-%m-%d %H:%M")
-                            race_time = TOKYO_TZ.localize(race_time_obj)
-                            if now_jst < race_time:
-                                trigger_time = race_time - datetime.timedelta(minutes=15)
-                                if trigger_time > now_jst:
-                                    target_times.append(trigger_time.strftime("%Y-%m-%dT%H:%M:00"))
-                    except:
-                        start_time_raw = "-"
+            # 発走予定時刻のパースデバッグ
+            start_val = str(df['発走予定'].iloc[0]).strip()
+            print(f"-> CSVの発走予定値: '{start_val}'")
 
-                    race_no_str = str(r).zfill(2)
-                    grade_val, date_val, race_val, dist_val = ["-"] * 4
-                    try:
-                        grade_val = driver.find_element(By.CSS_SELECTOR, "#race-result-race-info h3").text.strip()
-                        info_tables = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable")
-                        if len(info_tables) >= 1:
-                            tds1 = info_tables[0].find_elements(By.CSS_SELECTOR, "tbody tr td")
-                            if len(tds1) >= 3:
-                                date_val = tds1[0].text.split("\n")[0].strip()
-                                race_val = tds1[1].text.strip()
-                                dist_val = tds1[2].text.strip()
-                    except: pass
+            if start_val in ["", "-", "nan"]:
+                print(f"-> 【スキップ】発走予定時刻が空(または不正)です。")
+                continue
 
-                    # 詳細データはタブクリックで取得
-                    base_data = {str(i): {} for i in range(1, 9)}
-                    fetch_tab_data_by_click(driver, wait, "program", base_data, {"車": 0, "_raw_info": 1, "ハンデ": 2, "試走T": 3, "偏差": 4, "連率": 5}, "出走表", force_click=False)
-                    
-                    for car_no, row_data in base_data.items():
-                        raw_text = row_data.get("_raw_info", "")
-                        p_name, p_car, p_loc, p_gen, p_age, p_class, p_rank = ["-"] * 7
-                        if raw_text and raw_text != "-":
-                            lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
-                            if len(lines) >= 1: p_name = lines[0]
-                            if len(lines) >= 2: p_car  = lines[1]
-                            if len(lines) >= 3:
-                                parts = re.split(r'\s+', lines[2]); p_loc, p_gen = (parts + ["-"]*2)[:2]
-                            if len(lines) >= 4:
-                                parts = re.split(r'\s+', lines[3]); p_age, p_class, p_rank = (parts + ["-"]*3)[:3]
-                        row_data.update({"選手名":p_name,"競走車":p_car,"所属":p_loc,"期":p_gen,"年齢":p_age,"車級":p_class,"ランク":p_rank, "距離": dist_val})
-                        if "_raw_info" in row_data: del row_data["_raw_info"]
+            try:
+                # 日付と時間を結合してパース
+                dep_time_str = f"{today_str} {start_val}"
+                dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(dep_time_str, "%Y-%m-%d %H:%M"))
+                print(f"-> 変換後の日本時刻: {dep_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # ここが最大の判定箇所
+                if now < dep_time:
+                    print(f"-> 【判定:通過】現在時刻({now.strftime('%H:%M')}) は 発走予定前 です。ターゲットに追加。")
+                    targets.append((file, df))
+                else:
+                    print(f"-> 【判定:除外】現在時刻({now.strftime('%H:%M')}) は 既に発走予定を過ぎています。")
+            except Exception as time_err:
+                print(f"-> 【時刻エラー】変換に失敗しました: {time_err}")
 
-                    fetch_tab_data_by_click(driver, wait, "recent10", base_data, {f"近10_{i-1}": i for i in range(2, 12)}, "近10走")
+        except Exception as e:
+            print(f"-> 【読み込みエラー】({file}): {e}")
 
-                    f_map = {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6, "平近順位": 7, "近況": 8, "2連対率": 9}
-                    for sub_id in ["good5", "wet5", "han5"]:
-                        l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
-                        fetch_tab_data_by_click(driver, wait, sub_id, base_data, {f"{l_prefix}_{k}": v for k, v in f_map.items()}, l_prefix)
-                    
-                    df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
-                    if not df.empty:
-                        df = add_predictions(df)
-                        fixed_cols = ["印(良)", "印(湿)", "車", "選手名", "ハンデ", "偏差", "前日ゴール時間(良)", "前日予想競走T(良)", "前日ゴール時間(湿)", "前日予想競走T(湿)"]
-                        other_cols = [c for c in df.columns if c not in fixed_cols and c not in ['場所', 'グレード', '日付', 'レース', '発走予定', '距離']]
-                        df = df[fixed_cols + other_cols]
-                        
-                        df.insert(0, '場所', place)
-                        df.insert(1, 'グレード', grade_val)
-                        df.insert(2, '日付', date_val)
-                        df.insert(3, 'レース', race_val)
-                        df.insert(4, '距離', dist_val)
-                        df.insert(5, '発走予定', start_time_raw)
-                        
-                        df.to_csv(f"data/race_data_{place}_{race_no_str}R.csv", index=False, encoding="utf-8-sig")
-                        print(f"  => {place} {r}R 保存完了。", flush=True)
-                except Exception as e:
-                    print(f"  [エラー] {place} {r}R 処理スキップ: {e}")
+    if not targets:
+        print(f"\n[{now.strftime('%H:%M:%S')}] --- 最終結果: 実行対象のレースはありませんでした。 ---")
+        return
+
+    print(f"\n[{now.strftime('%H:%M:%S')}] 合計 {len(targets)} 件の処理を開始します。")
+
+    driver = get_driver()
+    
+    try:
+        for file, df in targets:
+            try:
+                file_name_only = os.path.basename(file).replace(".csv", "")
+                parts = file_name_only.split("_")
+                
+                if len(parts) >= 3:
+                    place = parts[-2]
+                    race_no = parts[-1].replace("R", "")
+                    target_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
+                else:
+                    print(f"ファイル名形式エラー: {file}")
                     continue
 
-        # --- GAS送信 ---
-        if target_times:
-            try:
-                payload = json.dumps({"times": list(set(target_times))})
-                resp = requests.post(GAS_WEBAPP_URL, data=payload, headers={'Content-Type': 'application/json'}, timeout=15)
-                print(f"\n--- GAS予約送信完了: {resp.text} ---")
+                print(f"Webサイトへアクセス中: {place} {race_no}R...", end=" ", flush=True)
+                
+                driver.get(target_url)
+                wait = WebDriverWait(driver, 10)
+
+                # --- レース情報の取得 ---
+                info_dict = {"天候": "-", "気温": "-", "湿度": "-", "走路温度": "-", "走路状況": "-"}
+                try:
+                    info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
+                    if len(info_tables) >= 2:
+                        tds1 = info_tables[0].find_elements(By.TAG_NAME, "td")
+                        if len(tds1) >= 4:
+                            info_dict["天候"] = tds1[3].text.strip()
+                        tds2 = info_tables[1].find_elements(By.TAG_NAME, "td")
+                        if len(tds2) >= 4:
+                            info_dict["気温"] = tds2[0].text.strip()
+                            info_dict["湿度"] = tds2[1].text.strip()
+                            info_dict["走路温度"] = tds2[2].text.strip()
+                            info_dict["走路状況"] = tds2[3].text.strip()
+                except Exception as e:
+                    print(f"(情報取得一部失敗: {e})", end=" ")
+
+                # --- 試走タイムの取得 ---
+                table = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
+                rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
+                trial_results = {}
+                for row in rows:
+                    cols = row.find_elements(By.TAG_NAME, "td")
+                    if len(cols) >= 4:
+                        car_no = cols[0].text.strip()
+                        t_time = cols[3].text.strip()
+                        if car_no.isdigit() and t_time not in [".", "-", "", "0.00"]:
+                            trial_results[int(car_no)] = t_time
+                
+                if len(trial_results) >= 6:
+                    print("試走タイム取得完了。計算開始...", end=" ")
+                    df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
+                    
+                    prefix = "良5"
+                    if any(x in info_dict["走路状況"] for x in ["湿", "ぶち", "濡"]):
+                        prefix = "湿5"
+                    elif "雨" in info_dict["天候"]:
+                        prefix = "湿5"
+
+                    df = calculate_predictions(df, weather_prefix=prefix)
+                    
+                    df.to_csv(file, index=False, encoding="utf-8-sig")
+                    print(f"成功 ({prefix}モード)")
+                    print_betting_guide(df, place, race_no, info_dict)
+                    
+                    notify_gas_completion(place, race_no)
+                else:
+                    print("【スキップ】公式サイトの試走タイムがまだ未更新です。")
+                
+                time.sleep(1)
+
             except Exception as e:
-                print(f"\n--- GAS送信失敗: {e} ---")
+                print(f"処理失敗 ({e})")
+                continue
 
     finally:
         driver.quit()
-        print("\n--- 全工程終了 ---", flush=True)
+        print("ブラウザを終了しました。")
 
 if __name__ == "__main__":
     main()
