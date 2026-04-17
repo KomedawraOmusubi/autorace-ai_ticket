@@ -198,10 +198,15 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6}, l_prefix)
 
-                    # ★ 発走予定の取得（race-infoTableから取得）
+                    # ★ 発走予定の取得（waitで更新後に取得）
                     print(f"      [最終確定] 発走予定時刻を取得中...", flush=True)
                     start_time_raw = "-"
                     try:
+                        wait.until(EC.text_to_be_present_in_element(
+                            (By.CSS_SELECTOR, "table.race-infoTable"),
+                            f"{r}R"
+                        ))
+
                         info_tables = driver.find_elements(By.CSS_SELECTOR, "table.race-infoTable")
                         for table in info_tables:
                             text = table.text.replace("\n", " ")
@@ -212,6 +217,7 @@ def main():
                                     break
                     except:
                         pass
+
                     print(f"      [結果] {start_time_raw}", flush=True)
 
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
