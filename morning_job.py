@@ -131,13 +131,26 @@ def main():
     today_str = now_jst.strftime("%Y-%m-%d")
     driver = get_driver()
     wait = WebDriverWait(driver, 20)
-    target_times = [] 
+    target_times = []
+
+    # ★ 発走予定マップを事前取得
+    race_time_map = {}
+    try:
+        driver.get("https://autorace.jp/")
+        time.sleep(3)
+
+        blocks = driver.find_elements(By.CSS_SELECTOR, ".todayRaceSection")
+        for block in blocks:
+            text = block.text.replace("\n", " ")
+            matches = re.findall(r'(\d{1,2})R\s*(\d{2}:\d{2})', text)
+            for r_no, t in matches:
+                race_time_map[int(r_no)] = t
+    except:
+        pass
 
     try:
         print(f"\n--- スクレイピング開始 ({today_str}) ---", flush=True)
-        driver.get("https://autorace.jp/")
-        time.sleep(3)
-        
+
         place_map = {"川口": "kawaguchi", "山陽": "sanyou", "飯塚": "iizuka", "浜松": "hamamatsu", "伊勢崎": "isesaki"}
         active_places = []
         try:
@@ -154,7 +167,7 @@ def main():
             driver.get(first_url)
             time.sleep(5)
 
-            for r in range(3, 4):
+            for r in range(1, 13):
                 try:
                     tab_xpath = f"//*[@data-raceno='{r}']"
                     race_tabs = driver.find_elements(By.XPATH, tab_xpath)
@@ -198,26 +211,9 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6}, l_prefix)
 
-                    # ★ 発走予定の取得（body全体スキャン＋更新待ち）
+                    # ★ 発走予定（事前取得から参照）
                     print(f"      [最終確定] 発走予定時刻を取得中...", flush=True)
-                    start_time_raw = "-"
-                    try:
-                        wait.until(EC.text_to_be_present_in_element(
-                            (By.CSS_SELECTOR, "#race-result-race-info h3"),
-                            f"{r}R"
-                        ))
-
-                        time.sleep(2.0)
-
-                        body_text = driver.find_element(By.TAG_NAME, "body").text.replace("\n", " ")
-
-                        match = re.search(r'発走予定\s*(\d{2}:\d{2})', body_text)
-                        if match:
-                            start_time_raw = match.group(1)
-
-                    except Exception:
-                        pass
-
+                    start_time_raw = race_time_map.get(r, "-")
                     print(f"      [結果] {start_time_raw}", flush=True)
 
                     df = pd.DataFrame([v for v in base_data.values() if v.get("選手名") and v.get("選手名") != "-"])
