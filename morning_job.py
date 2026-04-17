@@ -198,7 +198,7 @@ def main():
                         l_prefix = "良5" if sub_id == "good5" else "湿5" if sub_id == "wet5" else "斑5"
                         fetch_tab_data_by_click(driver, wait, sub_id, base_data, {"前1": 2, "前2": 3, "前3": 4, "前4": 5, "前5": 6}, l_prefix)
 
-                    # ★ 発走予定の取得（ヘッダー更新待ち）
+                    # ★ 発走予定の取得（body全体スキャン＋更新待ち）
                     print(f"      [最終確定] 発走予定時刻を取得中...", flush=True)
                     start_time_raw = "-"
                     try:
@@ -207,16 +207,15 @@ def main():
                             f"{r}R"
                         ))
 
-                        time.sleep(1.5)
+                        time.sleep(2.0)
 
-                        header = driver.find_element(By.ID, "race-result-race-info")
-                        text = header.text.replace("\n", " ")
+                        body_text = driver.find_element(By.TAG_NAME, "body").text.replace("\n", " ")
 
-                        match = re.search(r'発走予定\s*(\d{2}:\d{2})', text)
+                        match = re.search(r'発走予定\s*(\d{2}:\d{2})', body_text)
                         if match:
                             start_time_raw = match.group(1)
 
-                    except Exception as e:
+                    except Exception:
                         pass
 
                     print(f"      [結果] {start_time_raw}", flush=True)
