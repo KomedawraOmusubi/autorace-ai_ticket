@@ -13,8 +13,9 @@ test_positions = [
     {'car': 8, 'x': 310, 'y': 310},
 ]
 
-# 自分のDiscord Webhook URLに書き換えてください
-WEBHOOK_URL = "ここにあなたのWebhook_URLを貼り付け"
+
+# 環境変数から取得するように変更
+WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 def main():
     try:
