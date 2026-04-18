@@ -1,0 +1,29 @@
+name: Test Visualizer Image Send
+
+on:
+  # 手動で実行ボタン（Run workflow）を押した時に動く設定
+  workflow_dispatch:
+
+jobs:
+  test_image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install Pillow requests
+
+      - name: Run visualizer test
+        env:
+          # GitHubのSettings > Secretsで登録した名前と合わせる
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python visualizer.py
