@@ -7,7 +7,7 @@ import glob
 import numpy as np
 import re
 import requests
-import traceback  # エラー詳細表示用に追加
+import traceback
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -185,7 +185,6 @@ def print_betting_guide(df, place, race_no, info_dict):
     
     for i in range(min(5, len(sdf))):
         car = int(sdf.iloc[i]['車'])
-        # 「選手名」を使用
         name = sdf.iloc[i]['選手名'] if '選手名' in sdf.columns else "不明"
         score = float(sdf.iloc[i]['予想スコア'])
         tags = []
@@ -202,7 +201,6 @@ def print_betting_guide(df, place, race_no, info_dict):
     
     if ana:
         msg.append("-" * 30)
-        # 「選手名」を使用
         ana_name = sdf[sdf['車'] == ana]['選手名'].iloc[0] if '選手名' in sdf.columns else "穴候補"
         msg.append(f"■ 穴候補: {ana}号車 ({ana_name})")
         msg.append(f"■ 穴   (三連単): {ana}-{top1}-{top2}, {top1}-{ana}-{top2}")
@@ -243,8 +241,9 @@ def main():
                 dep_time_str = f"{today_str} {start_val}"
                 dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(dep_time_str, "%Y-%m-%d %H:%M"))
                 
-                if now < dep_time:
-                    targets.append((file, df))
+                # 発走時刻の30分後（リトライ6回分）を過ぎていなければ対象とする
+                if now < (dep_time + datetime.timedelta(minutes=30)):
+                    targets.append((file, df, dep_time)) # dep_timeも保持
             except:
                 pass
 
@@ -252,13 +251,13 @@ def main():
             print(f"ファイル読み込みエラー({file}): {e}")
 
     if not targets:
-        print("【全レースの発走時刻経過、または時刻形式エラー】の為、実行対象のレースはありませんでした。")
+        print("【全レースの発走時刻経過】の為、実行対象のレースはありませんでした。")
         return
 
     driver = get_driver()
     
     try:
-        for file, df in targets:
+        for file, df, dep_time in targets:
             try:
                 file_name_only = os.path.basename(file).replace(".csv", "")
                 parts = file_name_only.split("_")
@@ -319,7 +318,21 @@ def main():
                         print_betting_guide(df, place, race_no, info_dict)
                         notify_gas_completion(place, race_no)
                     else:
-                        print("【スキップ】試走タイムがまだ未更新です。")
+                        # --- 修正箇所：リトライ回数の制限（最大6回 = 発走15分前から開始して、発走後15分まで） ---
+                        limit_time = dep_time + datetime.timedelta(minutes=15)
+                        if now < limit_time:
+                            print(f"【スキップ】試走未更新。リトライ予約を送信します（残り約{(limit_time - now).seconds // 60}分で打ち切り）")
+                            if GAS_WEBAPP_URL:
+                                retry_time = (datetime.datetime.now(TOKYO_TZ) + datetime.timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M")
+                                retry_data = {"times": [retry_time], "is_retry": True}
+                                try:
+                                    requests.post(GAS_WEBAPP_URL, json=retry_data)
+                                except Exception as re:
+                                    print(f"GASリトライ予約送信失敗: {re}")
+                        else:
+                            print(f"【打ち切り】発走予定時刻から15分経過したため、リトライを停止します。")
+                        # --------------------------------------------------------------------------
+
                 except Exception as e:
                     print(f"テーブル取得失敗: {e}")
 
