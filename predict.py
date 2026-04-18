@@ -222,6 +222,7 @@ def main():
     print(f"見つかったCSVファイル数: {len(csv_files)}")
     
     if not csv_files:
+        print("【CSVファイル未検出】の為、実行対象のレースはありませんでした。")
         return
 
     targets = []
@@ -249,7 +250,7 @@ def main():
             print(f"ファイル読み込みエラー({file}): {e}")
 
     if not targets:
-        print(f"実行対象のレースはありませんでした。")
+        print("【全レースの発走時刻経過、または時刻形式エラー】の為、実行対象のレースはありませんでした。")
         return
 
     driver = get_driver()
