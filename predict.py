@@ -185,7 +185,8 @@ def print_betting_guide(df, place, race_no, info_dict):
     
     for i in range(min(5, len(sdf))):
         car = int(sdf.iloc[i]['車'])
-        name = sdf.iloc[i]['氏名'] if '氏名' in sdf.columns else "不明"
+        # 「選手名」を使用
+        name = sdf.iloc[i]['選手名'] if '選手名' in sdf.columns else "不明"
         score = float(sdf.iloc[i]['予想スコア'])
         tags = []
         if sdf.iloc[i]['逃げ評価'] > 0: tags.append("逃げ")
@@ -201,7 +202,8 @@ def print_betting_guide(df, place, race_no, info_dict):
     
     if ana:
         msg.append("-" * 30)
-        ana_name = sdf[sdf['車'] == ana]['氏名'].iloc[0] if '氏名' in sdf.columns else "穴候補"
+        # 「選手名」を使用
+        ana_name = sdf[sdf['車'] == ana]['選手名'].iloc[0] if '選手名' in sdf.columns else "穴候補"
         msg.append(f"■ 穴候補: {ana}号車 ({ana_name})")
         msg.append(f"■ 穴   (三連単): {ana}-{top1}-{top2}, {top1}-{ana}-{top2}")
         msg.append(f"■ 穴   (二連単): {ana}-{top1}, {ana}-{top2}")
