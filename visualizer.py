@@ -24,7 +24,7 @@ def create_prediction_image(positions):
             car_icon = Image.open(icon_path).convert('RGBA')
             
             # --- 画像を縮小する処理を追加 ---
-            icon_size = (30, 30)  # ここでサイズを指定（幅, 高さ）
+            icon_size = (60, 60)  # ここでサイズを指定（幅, 高さ）
             car_icon.thumbnail(icon_size, Image.Resampling.LANCZOS)
             # ------------------------------
             
@@ -56,7 +56,7 @@ def send_to_discord(image_path, webhook_url):
 
 # --- このファイル単体で実行（テスト）する場合の処理 ---
 if __name__ == "__main__":
-    # GitHubのSecretsに登録した名前から取得
+    # GitHubのSecretsに登録した名前から取得6
     WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
     
     # テスト用の配置データ
