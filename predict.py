@@ -82,7 +82,8 @@ def calculate_predictions(df, weather_prefix="良5"):
         
         return race_t, trial_t, st, rank
 
-    for i in range(1, 4):
+    # 修正ポイント：前1走〜前5走までを取得
+    for i in range(1, 6):
         col_name = f"{weather_prefix}_前{i}"
         if col_name in df.columns:
             metrics = df[col_name].apply(extract_metrics)
@@ -96,10 +97,16 @@ def calculate_predictions(df, weather_prefix="良5"):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    df['平均競走タイム'] = df[[f'前競走T_{i}' for i in range(1, 4)]].mean(axis=1)
-    df['平均試走'] = df[[f'前試走T_{i}' for i in range(1, 4)]].mean(axis=1)
-    df['平均順位'] = df[[f'前順位_{i}' for i in range(1, 4)]].mean(axis=1)
-    df['平均st'] = df[[f'前ST_{i}' for i in range(1, 4)]].mean(axis=1)
+    # 修正ポイント：平均(mean)から中央値(median)に変更し、5走分を対象とする
+    target_cols_race = [f'前競走T_{i}' for i in range(1, 6)]
+    target_cols_trial = [f'前試走T_{i}' for i in range(1, 6)]
+    target_cols_rank = [f'前順位_{i}' for i in range(1, 6)]
+    target_cols_st = [f'前ST_{i}' for i in range(1, 6)]
+
+    df['平均競走タイム'] = df[target_cols_race].median(axis=1)
+    df['平均試走'] = df[target_cols_trial].median(axis=1)
+    df['平均順位'] = df[target_cols_rank].median(axis=1)
+    df['平均st'] = df[target_cols_st].median(axis=1)
 
     df['直前予想競走T'] = (df['平均競走タイム'] - df['平均試走']) + df['試走T']
 
@@ -241,8 +248,6 @@ def main():
                 dep_time_str = f"{today_str} {start_val}"
                 dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(dep_time_str, "%Y-%m-%d %H:%M"))
                 
-                # --- 修正ポイント：今から30分以内に発走予定のレースのみを対象にする ---
-                # これにより、昼の実行時に夜のレースが「データなし」と判定されるのを防ぐ
                 if now < dep_time and dep_time < (now + datetime.timedelta(minutes=30)):
                     targets.append((file, df, dep_time))
             except:
@@ -319,7 +324,6 @@ def main():
                         print_betting_guide(df, place, race_no, info_dict)
                         notify_gas_completion(place, race_no)
                     else:
-                        # --- リトライ回数制限（最大6回：発走15分後まで） ---
                         limit_time = dep_time + datetime.timedelta(minutes=15)
                         if now < limit_time:
                             print(f"【スキップ】試走未更新。リトライ予約を送信します。")
