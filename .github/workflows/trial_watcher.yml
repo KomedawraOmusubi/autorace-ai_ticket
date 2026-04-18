@@ -12,7 +12,7 @@ on:
 jobs:
   check-and-fetch:
     runs-on: ubuntu-latest
-    
+
     # リポジトリへの書き込み権限を明示的に付与
     permissions:
       contents: write
@@ -21,7 +21,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # 履歴を含めて取得（push時の競合回避のため）
+          # GASから送られてきた ref (auto_ticket_v3.4.1等) を取得する設定を追加
+          ref: ${{ github.event.client_payload.ref }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -45,13 +46,14 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
+
           # 変更がある場合のみコミットしてプッシュ
           git add data/*.csv
           if ! git diff --cached --quiet; then
             git commit -m "Update trial times and predictions: $(date +'%Y-%m-%d %H:%M:%S')"
-            git pull --rebase origin main
-            git push origin main
+            # プッシュ先もGASからの指定ブランチに合わせる
+            git pull --rebase origin ${{ github.event.client_payload.ref }}
+            git push origin ${{ github.event.client_payload.ref }}
           else
             echo "No changes (Trial time not yet updated). Skipping commit."
           fi
