@@ -61,7 +61,6 @@ def get_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    # ページロード戦略を 'normal' に変更（確実性を優先）
     options.page_load_strategy = 'normal'
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     
@@ -69,16 +68,11 @@ def get_driver():
     return driver
 
 def calculate_predictions(df, weather_prefix="良5"):
-    """
-    CSV内の「良5_前1」「湿5_前1」等のセル文字列から数値を抽出し、計算を行う
-    """
     def extract_metrics(text):
         if pd.isna(text) or text == "-" or str(text).strip() == "":
             return None, None, None, None
         
-        # 数値（競走T, 試走T, STなど）をすべて抽出
         times = re.findall(r"\d+\.\d+", str(text))
-        # 「○着」を抽出
         rank_match = re.search(r"(\d+)着", str(text))
         
         race_t = float(times[0]) if len(times) >= 1 else None
@@ -88,7 +82,6 @@ def calculate_predictions(df, weather_prefix="良5"):
         
         return race_t, trial_t, st, rank
 
-    # 1〜3走前までのデータを抽出して新しい一時的なカラムに格納
     for i in range(1, 4):
         col_name = f"{weather_prefix}_前{i}"
         if col_name in df.columns:
@@ -98,26 +91,21 @@ def calculate_predictions(df, weather_prefix="良5"):
             df[f'前ST_{i}'] = metrics.apply(lambda x: x[2])
             df[f'前順位_{i}'] = metrics.apply(lambda x: x[3])
 
-    # 数値変換
     num_cols = ['試走T', 'ハンデ', '偏差']
     for col in num_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # 基本指標の計算（抽出した一時カラムを使用）
     df['平均競走タイム'] = df[[f'前競走T_{i}' for i in range(1, 4)]].mean(axis=1)
     df['平均試走'] = df[[f'前試走T_{i}' for i in range(1, 4)]].mean(axis=1)
     df['平均順位'] = df[[f'前順位_{i}' for i in range(1, 4)]].mean(axis=1)
     df['平均st'] = df[[f'前ST_{i}' for i in range(1, 4)]].mean(axis=1)
 
-    # 直前予想競走T の計算
     df['直前予想競走T'] = (df['平均競走タイム'] - df['平均試走']) + df['試走T']
 
-    # 上昇度（競走タイムの変化）
     df['上昇度'] = (df['前競走T_3'] - df['前競走T_2']) + (df['前競走T_2'] - df['前競走T_1'])
     df['上昇評価'] = df['上昇度'].apply(lambda x: 10 if (not pd.isna(x) and x > 0) else (5 if x == 0 else 0))
 
-    # 100m単価・追い上げスコア
     df['100m単価'] = df['直前予想競走T'] / 31.0
     df['追い上げスコア'] = 0
     for i in range(len(df)):
@@ -129,7 +117,6 @@ def calculate_predictions(df, weather_prefix="良5"):
             if not faster_followers.empty:
                 df.loc[i, '追い上げスコア'] = -10
 
-    # 逃げ評価
     df['逃げ評価'] = 0
     for i in [0, 1, 2]: 
         if i < len(df):
@@ -137,14 +124,12 @@ def calculate_predictions(df, weather_prefix="良5"):
             if trial_rank <= 2 and df.loc[i, '平均st'] <= 0.15:
                 df.loc[i, '逃げ評価'] = 15
 
-    # 偏差評価
     if '偏差' in df.columns:
         median_dev = df['偏差'].median()
         df['偏差評価'] = df['偏差'].apply(lambda x: 10 if (not pd.isna(x) and x <= median_dev) else 0)
     else:
         df['偏差評価'] = 0
 
-    # ST評価
     df['ST評価'] = 0
     if 'ハンデ' in df.columns:
         for hd in df['ハンデ'].unique():
@@ -154,23 +139,19 @@ def calculate_predictions(df, weather_prefix="良5"):
             if not pd.isna(min_st):
                 df.loc[mask & (df['平均st'] == min_st), 'ST評価'] = 10
 
-    # タイム評価
     df['タイム順位'] = df['直前予想競走T'].rank(method='min')
     df['タイム評価'] = df['タイム順位'].apply(lambda x: max(0, 60 - (x * 10)) if not pd.isna(x) else 0)
 
-    # 実績評価 (weather_prefixに合わせて動的に参照先を修正)
     performance_col = f'{weather_prefix}_平均順位'
     if performance_col in df.columns:
         df['実績評価'] = df[performance_col].rank(method='min').apply(lambda x: max(0, 30 - (x * 5)) if not pd.isna(x) else 0)
     else:
         df['実績評価'] = 0
 
-    # 最終スコア
     df['予想スコア'] = (df['タイム評価'] + df['実績評価'] + df['偏差評価'] + 
                         df['ST評価'] + df['上昇評価'] + df['追い上げスコア'] + df['逃げ評価'])
     df['予想着順'] = df['予想スコア'].rank(ascending=False, method='min')
 
-    # 数値のフォーマット処理
     target_2f_cols = ['平均競走タイム', '平均試走', '直前予想競走T']
     for col in target_2f_cols:
         if col in df.columns:
@@ -195,13 +176,11 @@ def print_betting_guide(df, place, race_no, info_dict):
     ana_candidates = sdf.iloc[3:][(sdf['上昇評価'] >= 10) | (sdf['逃げ評価'] >= 15)]
     ana = int(ana_candidates.iloc[0]['車']) if not ana_candidates.empty else None
 
-    # Discord用メッセージ構築
     msg = []
     msg.append(f"**【{place} {race_no}R】 直前予想・推奨買い目**")
     msg.append(f"状況: {info_dict['天候']} / 路面:{info_dict['走路状況']}({info_dict['走路温度']}℃) / 気温:{info_dict['気温']} / 湿度:{info_dict['湿度']}")
     msg.append("```")
     
-    # 印の定義
     marks = ["◎", "○", "▲", "△", "注"]
     
     for i in range(min(5, len(sdf))):
@@ -213,7 +192,6 @@ def print_betting_guide(df, place, race_no, info_dict):
         if sdf.iloc[i]['上昇評価'] >= 10: tags.append("上昇")
         if sdf.iloc[i]['ST評価'] > 0: tags.append("ST速")
         tag_str = " ".join([f"[{t}]" for t in tags])
-        # 印 形式で出力
         msg.append(f"{marks[i]} {car}号車 {name: <6} (Score: {score:5.1f}) {tag_str}")
     
     msg.append("-" * 30)
@@ -230,10 +208,7 @@ def print_betting_guide(df, place, race_no, info_dict):
     msg.append("```")
     
     final_msg = "\n".join(msg)
-    
-    # コンソール出力
     print("\n" + final_msg)
-    # Discord送信
     send_discord_message(final_msg)
 
 def main():
@@ -257,13 +232,6 @@ def main():
             if '発走予定' not in df.columns or '車' not in df.columns:
                 continue
 
-            # スキップ判定
-            if '直前予想競走T' in df.columns:
-                val = str(df['直前予想競走T'].iloc[0]).strip()
-                if not pd.isna(df['直前予想競走T'].iloc[0]) and val not in ["", "-", "nan"]:
-                    print(f"-> 【スキップ】{file}: 既に計算済み")
-                    continue
-
             start_val = str(df['発走予定'].iloc[0]).strip()
             if start_val in ["", "-", "nan"]:
                 continue
@@ -272,7 +240,6 @@ def main():
                 dep_time_str = f"{today_str} {start_val}"
                 dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(dep_time_str, "%Y-%m-%d %H:%M"))
                 
-                # 締切1分前から締切20分後までをターゲットにする（適宜調整）
                 if now < dep_time:
                     targets.append((file, df))
             except:
@@ -303,13 +270,11 @@ def main():
                 print(f"Webサイトへアクセス中: {place} {race_no}R...")
                 
                 driver.get(target_url)
-                # ページ遷移後に少し待機
                 time.sleep(3)
                 wait = WebDriverWait(driver, 15)
 
                 info_dict = {"天候": "-", "気温": "-", "湿度": "-", "走路温度": "-", "走路状況": "-"}
                 try:
-                    # 確実に情報テーブルが出るまで待つ
                     wait.until(EC.presence_of_element_located((By.CLASS_NAME, "race-infoTable")))
                     info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
                     if len(info_tables) >= 2:
@@ -325,7 +290,6 @@ def main():
                 except:
                     pass
 
-                # 試走テーブルの取得
                 try:
                     table = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
                     rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
@@ -360,7 +324,6 @@ def main():
 
             except Exception as e:
                 print(f"個別処理失敗: {e}")
-                # 詳細なスタックトレースを表示
                 traceback.print_exc()
                 continue
 
