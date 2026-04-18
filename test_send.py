@@ -1,3 +1,4 @@
+import os
 import visualizer
 
 # テスト用の座標データ (x, y は後で調整するので、今は適当な値です)
