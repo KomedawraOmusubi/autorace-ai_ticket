@@ -21,7 +21,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # GASから送られてきた ref (auto_ticket_v3.4.1等) を取得する設定を追加
+          # GASから送られてきた ref (main等) を取得する設定
           ref: ${{ github.event.client_payload.ref }}
           fetch-depth: 0
 
@@ -32,15 +32,16 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # requests, numpy を追加して predict.py の動作を確実にします
+          # 必要なライブラリをインストール
           pip install pandas selenium webdriver-manager pytz requests numpy
 
       - name: Run Trial Fetcher
         run: python predict.py
         env:
           TZ: 'Asia/Tokyo'
-          # GitHubのSettings > Secretsで設定した名前と一致させる
+          # GitHubのSettings > Secretsから環境変数へ紐付け
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
 
       - name: Commit and Push Updated CSVs
         run: |
