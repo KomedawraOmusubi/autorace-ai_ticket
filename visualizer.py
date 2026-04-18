@@ -8,7 +8,6 @@ def create_prediction_image(positions):
     positions: [{'car': 1, 'x': 100, 'y': 200}, ...] のようなリスト
     """
     # 1. 背景画像を読み込む
-    # assets/background.png が存在することを確認
     base_path = 'assets/background.png'
     if not os.path.exists(base_path):
         raise FileNotFoundError(f"背景画像が見つかりません: {base_path}")
@@ -23,7 +22,13 @@ def create_prediction_image(positions):
         icon_path = f'assets/car_icons/{car_num}.png'
         if os.path.exists(icon_path):
             car_icon = Image.open(icon_path).convert('RGBA')
-            # 指定した座標(x, y)に貼り付け（3つ目の引数はマスクとして透過に使用）
+            
+            # --- 画像を縮小する処理を追加 ---
+            icon_size = (30, 30)  # ここでサイズを指定（幅, 高さ）
+            car_icon.thumbnail(icon_size, Image.Resampling.LANCZOS)
+            # ------------------------------
+            
+            # 指定した座標(x, y)に貼り付け
             base_img.paste(car_icon, (x, y), car_icon)
         else:
             print(f"警告: アイコンが見つかりません {icon_path}")
@@ -54,7 +59,7 @@ if __name__ == "__main__":
     # GitHubのSecretsに登録した名前から取得
     WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
     
-    # テスト用の配置データ（座標は後で背景に合わせて調整してください）
+    # テスト用の配置データ
     test_positions = [
         {'car': 1, 'x': 100, 'y': 200},
         {'car': 2, 'x': 150, 'y': 250},
