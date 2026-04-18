@@ -262,14 +262,13 @@ def main():
                 print(f"-> 【スキップ】'車' カラムがありません。")
                 continue
 
-            prediction_cols = [c for c in df.columns if '予想着順' in c]
-            already_done = False
-            for c in prediction_cols:
-                if not pd.isna(df[c].iloc[0]):
-                    print(f"-> 【スキップ】カラム '{c}' に既に値が入っています: {df[c].iloc[0]}")
-                    already_done = True
-                    break
-            if already_done: continue
+            # --- スキップ判定の修正 ---
+            if '直前予想競走T' in df.columns:
+                # 1行目の「直前予想競走T」が空でない、かつ"-"でない場合にスキップ
+                val = str(df['直前予想競走T'].iloc[0]).strip()
+                if not pd.isna(df['直前予想競走T'].iloc[0]) and val != "" and val != "-":
+                    print(f"-> 【スキップ】カラム '直前予想競走T' に既に値が入っています: {val}")
+                    continue
 
             start_val = str(df['発走予定'].iloc[0]).strip()
             print(f"-> CSVの発走予定値: '{start_val}'")
