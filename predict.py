@@ -7,7 +7,7 @@ import glob
 import numpy as np
 import re
 import requests
-import traceback
+import traceback  # エラー詳細表示用に追加
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -241,9 +241,10 @@ def main():
                 dep_time_str = f"{today_str} {start_val}"
                 dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(dep_time_str, "%Y-%m-%d %H:%M"))
                 
-                # 発走時刻の30分後（リトライ6回分）を過ぎていなければ対象とする
-                if now < (dep_time + datetime.timedelta(minutes=30)):
-                    targets.append((file, df, dep_time)) # dep_timeも保持
+                # --- 修正ポイント：今から30分以内に発走予定のレースのみを対象にする ---
+                # これにより、昼の実行時に夜のレースが「データなし」と判定されるのを防ぐ
+                if now < dep_time and dep_time < (now + datetime.timedelta(minutes=30)):
+                    targets.append((file, df, dep_time))
             except:
                 pass
 
@@ -251,7 +252,7 @@ def main():
             print(f"ファイル読み込みエラー({file}): {e}")
 
     if not targets:
-        print("【全レースの発走時刻経過】の為、実行対象のレースはありませんでした。")
+        print("【実行対象レースなし】直近30分以内に発走予定のレースはありませんでした。")
         return
 
     driver = get_driver()
@@ -318,20 +319,20 @@ def main():
                         print_betting_guide(df, place, race_no, info_dict)
                         notify_gas_completion(place, race_no)
                     else:
-                        # --- 修正箇所：リトライ回数の制限（最大6回 = 発走15分前から開始して、発走後15分まで） ---
+                        # --- リトライ回数制限（最大6回：発走15分後まで） ---
                         limit_time = dep_time + datetime.timedelta(minutes=15)
                         if now < limit_time:
-                            print(f"【スキップ】試走未更新。リトライ予約を送信します（残り約{(limit_time - now).seconds // 60}分で打ち切り）")
+                            print(f"【スキップ】試走未更新。リトライ予約を送信します。")
                             if GAS_WEBAPP_URL:
                                 retry_time = (datetime.datetime.now(TOKYO_TZ) + datetime.timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M")
                                 retry_data = {"times": [retry_time], "is_retry": True}
                                 try:
                                     requests.post(GAS_WEBAPP_URL, json=retry_data)
+                                    print(f"GASリトライ予約送信成功: {retry_time}")
                                 except Exception as re:
                                     print(f"GASリトライ予約送信失敗: {re}")
                         else:
-                            print(f"【打ち切り】発走予定時刻から15分経過したため、リトライを停止します。")
-                        # --------------------------------------------------------------------------
+                            print(f"【打ち切り】発走15分経過したためリトライを停止します。")
 
                 except Exception as e:
                     print(f"テーブル取得失敗: {e}")
