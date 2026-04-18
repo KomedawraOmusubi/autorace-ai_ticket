@@ -23,4 +23,5 @@ jobs:
       - name: Run visualizer test
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python visualizer.py
+        run: python test_send.py
+
