@@ -7,6 +7,7 @@ import glob
 import numpy as np
 import re
 import requests
+import traceback  # エラー詳細表示用に追加
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -60,7 +61,8 @@ def get_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    options.page_load_strategy = 'eager'
+    # ページロード戦略を 'normal' に変更（確実性を優先）
+    options.page_load_strategy = 'normal'
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
@@ -240,64 +242,48 @@ def main():
     
     print(f"--- 徹底デバッグ開始 ---")
     print(f"現在時刻 (JST): {now.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"カレントディレクトリ: {os.getcwd()}")
     
     csv_files = glob.glob("data/race_data_*.csv")
     print(f"見つかったCSVファイル数: {len(csv_files)}")
     
     if not csv_files:
-        print("CSVファイルが data/ フォルダ内に見つかりません。パスが正しいか確認してください。")
         return
 
     targets = []
     for file in csv_files:
         try:
             df = pd.read_csv(file)
-            print(f"\n[ファイル確認: {file}]")
             
-            if '発走予定' not in df.columns:
-                print(f"-> 【スキップ】'発走予定' カラムがありません。現在のカラム: {list(df.columns)}")
-                continue
-            if '車' not in df.columns:
-                print(f"-> 【スキップ】'車' カラムがありません。")
+            if '発走予定' not in df.columns or '車' not in df.columns:
                 continue
 
-            # --- スキップ判定の修正 ---
+            # スキップ判定
             if '直前予想競走T' in df.columns:
-                # 1行目の「直前予想競走T」が空でない、かつ"-"でない場合にスキップ
                 val = str(df['直前予想競走T'].iloc[0]).strip()
-                if not pd.isna(df['直前予想競走T'].iloc[0]) and val != "" and val != "-":
-                    print(f"-> 【スキップ】カラム '直前予想競走T' に既に値が入っています: {val}")
+                if not pd.isna(df['直前予想競走T'].iloc[0]) and val not in ["", "-", "nan"]:
+                    print(f"-> 【スキップ】{file}: 既に計算済み")
                     continue
 
             start_val = str(df['発走予定'].iloc[0]).strip()
-            print(f"-> CSVの発走予定値: '{start_val}'")
-
             if start_val in ["", "-", "nan"]:
-                print(f"-> 【スキップ】発走予定時刻が空(または不正)です。")
                 continue
 
             try:
                 dep_time_str = f"{today_str} {start_val}"
                 dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(dep_time_str, "%Y-%m-%d %H:%M"))
-                print(f"-> 変換後の日本時刻: {dep_time.strftime('%Y-%m-%d %H:%M:%S')}")
                 
+                # 締切1分前から締切20分後までをターゲットにする（適宜調整）
                 if now < dep_time:
-                    print(f"-> 【判定:通過】現在時刻({now.strftime('%H:%M')}) は 発走予定前 です。ターゲットに追加。")
                     targets.append((file, df))
-                else:
-                    print(f"-> 【判定:除外】現在時刻({now.strftime('%H:%M')}) は 既に発走予定を過ぎています。")
-            except Exception as time_err:
-                print(f"-> 【時刻エラー】変換に失敗しました: {time_err}")
+            except:
+                pass
 
         except Exception as e:
-            print(f"-> 【読み込みエラー】({file}): {e}")
+            print(f"ファイル読み込みエラー({file}): {e}")
 
     if not targets:
-        print(f"\n[{now.strftime('%H:%M:%S')}] --- 最終結果: 実行対象のレースはありませんでした。 ---")
+        print(f"実行対象のレースはありませんでした。")
         return
-
-    print(f"\n[{now.strftime('%H:%M:%S')}] 合計 {len(targets)} 件の処理を開始します。")
 
     driver = get_driver()
     
@@ -312,16 +298,19 @@ def main():
                     race_no = parts[-1].replace("R", "")
                     target_url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
                 else:
-                    print(f"ファイル名形式エラー: {file}")
                     continue
 
-                print(f"Webサイトへアクセス中: {place} {race_no}R...", end=" ", flush=True)
+                print(f"Webサイトへアクセス中: {place} {race_no}R...")
                 
                 driver.get(target_url)
-                wait = WebDriverWait(driver, 10)
+                # ページ遷移後に少し待機
+                time.sleep(3)
+                wait = WebDriverWait(driver, 15)
 
                 info_dict = {"天候": "-", "気温": "-", "湿度": "-", "走路温度": "-", "走路状況": "-"}
                 try:
+                    # 確実に情報テーブルが出るまで待つ
+                    wait.until(EC.presence_of_element_located((By.CLASS_NAME, "race-infoTable")))
                     info_tables = driver.find_elements(By.CLASS_NAME, "race-infoTable")
                     if len(info_tables) >= 2:
                         tds1 = info_tables[0].find_elements(By.TAG_NAME, "td")
@@ -333,49 +322,50 @@ def main():
                             info_dict["湿度"] = tds2[1].text.strip()
                             info_dict["走路温度"] = tds2[2].text.strip()
                             info_dict["走路状況"] = tds2[3].text.strip()
+                except:
+                    pass
+
+                # 試走テーブルの取得
+                try:
+                    table = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
+                    rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
+                    trial_results = {}
+                    for row in rows:
+                        cols = row.find_elements(By.TAG_NAME, "td")
+                        if len(cols) >= 4:
+                            car_no = cols[0].text.strip()
+                            t_time = cols[3].text.strip()
+                            if car_no.isdigit() and t_time not in [".", "-", "", "0.00"]:
+                                trial_results[int(car_no)] = t_time
+                    
+                    if len(trial_results) >= 6:
+                        df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
+                        
+                        prefix = "良5"
+                        if any(x in info_dict["走路状況"] for x in ["湿", "ぶち", "濡"]):
+                            prefix = "湿5"
+                        elif "雨" in info_dict["天候"]:
+                            prefix = "湿5"
+
+                        df = calculate_predictions(df, weather_prefix=prefix)
+                        df.to_csv(file, index=False, encoding="utf-8-sig")
+                        print_betting_guide(df, place, race_no, info_dict)
+                        notify_gas_completion(place, race_no)
+                    else:
+                        print("【スキップ】試走タイムがまだ未更新です。")
                 except Exception as e:
-                    print(f"(情報取得一部失敗: {e})", end=" ")
+                    print(f"テーブル取得失敗: {e}")
 
-                table = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
-                rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
-                trial_results = {}
-                for row in rows:
-                    cols = row.find_elements(By.TAG_NAME, "td")
-                    if len(cols) >= 4:
-                        car_no = cols[0].text.strip()
-                        t_time = cols[3].text.strip()
-                        if car_no.isdigit() and t_time not in [".", "-", "", "0.00"]:
-                            trial_results[int(car_no)] = t_time
-                
-                if len(trial_results) >= 6:
-                    print("試走タイム取得完了。計算開始...", end=" ")
-                    df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
-                    
-                    prefix = "良5"
-                    if any(x in info_dict["走路状況"] for x in ["湿", "ぶち", "濡"]):
-                        prefix = "湿5"
-                    elif "雨" in info_dict["天候"]:
-                        prefix = "湿5"
-
-                    df = calculate_predictions(df, weather_prefix=prefix)
-                    
-                    df.to_csv(file, index=False, encoding="utf-8-sig")
-                    print(f"成功 ({prefix}モード)")
-                    print_betting_guide(df, place, race_no, info_dict)
-                    
-                    notify_gas_completion(place, race_no)
-                else:
-                    print("【スキップ】公式サイトの試走タイムがまだ未更新です。")
-                
-                time.sleep(1)
+                time.sleep(2)
 
             except Exception as e:
-                print(f"処理失敗 ({e})")
+                print(f"個別処理失敗: {e}")
+                # 詳細なスタックトレースを表示
+                traceback.print_exc()
                 continue
 
     finally:
         driver.quit()
-        print("ブラウザを終了しました。")
 
 if __name__ == "__main__":
     main()
