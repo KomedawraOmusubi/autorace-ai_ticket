@@ -29,14 +29,10 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 GAS_WEBAPP_URL = os.environ.get("GAS_WEBAPP_URL")
 
 def send_discord_message(content):
-    if not DISCORD_WEBHOOK_URL:
-        print("Error: DISCORD_WEBHOOK_URL is not set.")
-        return
+    if not DISCORD_WEBHOOK_URL: return
     data = {"content": content}
     try:
-        res = requests.post(DISCORD_WEBHOOK_URL, json=data)
-        res.raise_for_status()
-        print("Discord message sent successfully.")
+        requests.post(DISCORD_WEBHOOK_URL, json=data).raise_for_status()
     except Exception as e:
         print(f"Discord送信エラー: {e}")
 
@@ -58,10 +54,6 @@ def get_driver():
 
 def print_betting_guide(df, place, race_no, info_dict):
     sdf = df.sort_values('予想スコア', ascending=False).reset_index(drop=True)
-    if sdf.empty:
-        print("Prediction result is empty.")
-        return
-
     cars = [int(sdf.iloc[i]['車']) for i in range(len(sdf))]
     scores = [float(sdf.iloc[i]['予想スコア']) for i in range(len(sdf))]
     
@@ -88,27 +80,21 @@ def print_betting_guide(df, place, race_no, info_dict):
     
     msg.append("-" * 30)
 
-    if len(scores) >= 2:
-        diff_top = scores[0] - scores[1]
-        diff_box = scores[0] - scores[2] if len(scores) >= 3 else 999
-        
-        if len(cars) >= 4 and diff_top >= 20:
-            recommend = f"◎頭固定（信頼）: {cars[0]}-{cars[1]}{cars[2]}-{cars[1]}{cars[2]}{cars[3]}"
-        elif len(cars) >= 3 and diff_box <= 5:
-            recommend = f"三連単BOX推奨（激戦）: {cars[0]}, {cars[1]}, {cars[2]} (6点)"
-        elif len(cars) >= 3:
-            c0, c1, c2 = cars[0], cars[1], cars[2]
-            recommend = f"三連単通常: {c0}-{c1}-{c2}, {c0}-{c2}-{c1}, {c1}-{c0}-{c2}"
-        else:
-            recommend = "点数不足のため推奨なし"
+    diff_top = scores[0] - scores[1]
+    diff_box = scores[0] - scores[2]
+    
+    if diff_top >= 20:
+        recommend = f"◎頭固定（信頼）: {cars[0]}-{cars[1]}{cars[2]}-{cars[1]}{cars[2]}{cars[3]}"
+    elif diff_box <= 5:
+        recommend = f"三連単BOX推奨（激戦）: {cars[0]}, {cars[1]}, {cars[2]} (6点)"
     else:
-        recommend = "対象データ不足"
+        # 車番を動的に挿入
+        c0, c1, c2 = cars[0], cars[1], cars[2]
+        recommend = f"三連単通常: {c0}-{c1}-{c2}, {c0}-{c2}-{c1}, {c1}-{c0}-{c2}"
 
     msg.append(f"■ {recommend}")
-    if len(cars) >= 2:
-        msg.append(f"■ 二連単: {cars[0]}-{cars[1]}, {cars[1]}-{cars[0]}")
-    if len(cars) >= 4:
-        msg.append(f"■ 三連複BOX: {cars[0]}, {cars[1]}, {cars[2]}, {cars[3]} (4点)")
+    msg.append(f"■ 二連単: {cars[0]}-{cars[1]}, {cars[1]}-{cars[0]}")
+    msg.append(f"■ 三連複BOX: {cars[0]}, {cars[1]}, {cars[2]}, {cars[3]} (4点)")
     
     if ana:
         ana_name = sdf[sdf['車'] == ana]['選手名'].iloc[0] if '選手名' in sdf.columns else "穴候補"
@@ -121,16 +107,12 @@ def print_betting_guide(df, place, race_no, info_dict):
     print(final_msg)
     send_discord_message(final_msg)
     
-    try:
-        test_send.generate_and_send(df, DISCORD_WEBHOOK_URL)
-    except:
-        print("test_send error.")
+    test_send.generate_and_send(df, DISCORD_WEBHOOK_URL)
 
 def main():
     now = datetime.datetime.now(TOKYO_TZ)
     today_str = now.strftime("%Y-%m-%d")
     csv_files = glob.glob("data/race_data_*.csv")
-    print(f"Found CSV files: {csv_files}")
     if not csv_files: return
 
     targets = []
@@ -140,16 +122,11 @@ def main():
             start_val = str(df['発走予定'].iloc[0]).strip()
             if start_val in ["", "-", "nan"]: continue
             dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(f"{today_str} {start_val}", "%Y-%m-%d %H:%M"))
-            # 30分以内に発走するレースをターゲットにする
             if now < dep_time < (now + datetime.timedelta(minutes=30)):
                 targets.append((file, df, dep_time))
-                print(f"Target found: {file} (Dep: {start_val})")
         except: continue
 
-    if not targets:
-        print("No races within target time window.")
-        return
-
+    if not targets: return
     driver = get_driver()
     try:
         for file, df, dep_time in targets:
@@ -157,9 +134,7 @@ def main():
                 fname = os.path.basename(file).replace(".csv", "")
                 parts = fname.split("_")
                 place, race_no = parts[-2], parts[-1].replace("R", "")
-                url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
-                print(f"Fetching URL: {url}")
-                driver.get(url)
+                driver.get(f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}")
                 time.sleep(3)
                 wait = WebDriverWait(driver, 15)
                 
@@ -177,38 +152,21 @@ def main():
                         })
                 except: pass
 
-                print(f"Race Info: {info_dict}")
-
                 table = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
                 rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
+                trial_results = {int(cols[0].text.strip()): cols[3].text.strip() for row in rows if len(cols := row.find_elements(By.TAG_NAME, "td")) >= 4 if cols[0].text.strip().isdigit() and cols[3].text.strip() not in [".", "-", "0.00"]}
                 
-                trial_results = {}
-                for row in rows:
-                    cols = row.find_elements(By.TAG_NAME, "td")
-                    if len(cols) >= 4:
-                        car_no_text = cols[0].text.strip()
-                        trial_t_text = cols[3].text.strip()
-                        if car_no_text.isdigit():
-                            if any(x in trial_t_text for x in ["欠", "再", ".", "-"]) or trial_t_text == "0.00" or trial_t_text == "":
-                                trial_results[int(car_no_text)] = "-"
-                            else:
-                                trial_results[int(car_no_text)] = trial_t_text
-                
-                print(f"Trial Results Scraped: {trial_results}")
-                valid_trials = [v for v in trial_results.values() if v != "-"]
-                
-                if len(valid_trials) >= 1:
+                if len(trial_results) >= 6:
                     df['試走T'] = df['車'].apply(lambda x: trial_results.get(int(x), "-"))
                     prefix = "湿5" if any(x in info_dict["走路状況"] for x in ["湿", "ぶち", "濡"]) or "雨" in info_dict["天候"] else "良5"
                     
-                    # engine.py で欠場者（試走T="-"）を計算から除外する
+                    # ★ engine.py のロジックを呼び出す
                     df = engine.calculate_predictions(df, place, info_dict, weather_prefix=prefix)
                     
                     df.to_csv(file, index=False, encoding="utf-8-sig")
                     print_betting_guide(df, place, race_no, info_dict)
                     notify_gas_completion(place, race_no)
                 else:
-                    print("Trial times not available yet. Skipping.")
                     if now < dep_time + datetime.timedelta(minutes=15) and GAS_WEBAPP_URL:
                         r_time = (datetime.datetime.now(TOKYO_TZ) + datetime.timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M")
                         requests.post(GAS_WEBAPP_URL, json={"times": [r_time], "is_retry": True})
