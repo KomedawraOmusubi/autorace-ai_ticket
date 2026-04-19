@@ -19,14 +19,10 @@ def send_discord_message(content):
         print(f"Discord送信エラー: {e}")
 
 # ==========================================
-# 2. 展開ロジックの設定値
+# 2. 展開ロジックの設定値（初期配置のみ使用）
 # ==========================================
 TIME_BOOST = 35
 ST_BOOST = 45
-
-# --- 進み具合をマイルドにするための新係数 ---
-# 1.0だと元のまま、0.3だと移動距離が30%になります
-PROGRESS_BRAKE = 0.4 
 
 # --- コース境界線の最終防衛ライン ---
 Y_UPPER_LIMIT = 120  
@@ -34,15 +30,10 @@ Y_LOWER_LIMIT = 340
 X_LEFT_LIMIT = 30    
 X_RIGHT_LIMIT = 280  
 
-OUTSIDE_LINE_RATIO = {
-    1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: 0.0, 6: 0.0, 7: 0.0, 8: 0.01
-}
-ST_DRIFT_RATIO = 0.01 
-
 HANDY_X_STEP = -30  
 HANDY_Y_STEP = 150  
 
-# 初期値（変更なし）
+# 初期値（この配置のみを反映します）
 CAR_FORMAT_OFFSET = {
     1: {'dx': 270, 'dy': 0},
     2: {'dx': 230, 'dy': 90},
@@ -65,42 +56,32 @@ def generate_and_send(df):
             car = int(row['車'])
             handy = int(row.get('ハンデ', 0))
             
-            # --- 1. 初期位置計算（変更なし） ---
+            # --- 1. 初期位置計算（ここだけを活かす） ---
             effective_handy_x = min(handy, 30)
             shift_x = (effective_handy_x / 10) * HANDY_X_STEP
             shift_y = (handy / 10) * HANDY_Y_STEP
             
             offset = CAR_FORMAT_OFFSET.get(car, {'dx': 150, 'dy': 0})
-            start_x = offset['dx'] + shift_x
-            start_y = 350 + offset['dy'] + shift_y
             
-            # --- 2. 移動量計算（ブレーキ係数を適用） ---
-            trial_time = float(row.get('試走T', 3.45))
-            avg_st = float(row.get('平均st', 0.25))
+            # 計算結果をそのまま初期値にする
+            final_x = offset['dx'] + shift_x
+            final_y = 350 + offset['dy'] + shift_y
             
-            # 元の計算式に PROGRESS_BRAKE を掛けて移動を抑える
-            base_upward = max(0, (3.45 - trial_time) * TIME_BOOST) + max(0, (0.25 - avg_st) * ST_BOOST)
-            total_upward = base_upward * PROGRESS_BRAKE
+            # --- 2. 移動量計算（コメントアウト・無効化） ---
+            # trial_time = float(row.get('試走T', 3.45))
+            # avg_st = float(row.get('平均st', 0.25))
+            # total_upward = max(0, (3.45 - trial_time) * TIME_BOOST) + max(0, (0.25 - avg_st) * ST_BOOST)
+            total_upward = 0
             
-            # --- 3. イン切り込みロジック（コメントアウト） ---
-            # handy_cut_bonus = (handy / 10) * 0.03 
-            # base_cut_ratio = max(0, 0.15 + handy_cut_bonus - OUTSIDE_LINE_RATIO.get(car, 0.0))
-            # x_cut = total_upward * base_cut_ratio
-            x_cut = 0 # イン寄せを無効化
+            # --- 3. イン切り込みロジック（コメントアウト・無効化） ---
+            # x_cut = total_upward * (0.15 + (handy / 10) * 0.03)
+            # drift = (avg_st - 0.25) * ST_BOOST * 0.01 if avg_st > 0.25 else 0
+            x_cut = 0
+            drift = 0
             
-            drift = (avg_st - 0.25) * ST_BOOST * ST_DRIFT_RATIO if avg_st > 0.25 else 0
-            
-            # --- 4. 座標統合と全方向リミッター ---
-            # 横：x_cutを0にしたことで、ほぼ初期位置のまま（driftのみ影響）
-            final_x = start_x + x_cut - drift
-            in_course_limit = 150 + (handy / 10) * 10
-            final_x = max(in_course_limit, final_x)
+            # --- 4. 座標統合とリミッター（初期配置がはみ出さないよう一応適用） ---
             final_x = max(X_LEFT_LIMIT, min(X_RIGHT_LIMIT, final_x))
-
-            # 縦：移動量 total_upward が抑えられているので、白線に刺さりにくくなる
-            raw_y = start_y - total_upward
-            y_clamped = min(Y_LOWER_LIMIT, raw_y) 
-            final_y = max(Y_UPPER_LIMIT, y_clamped) 
+            final_y = max(Y_UPPER_LIMIT, min(Y_LOWER_LIMIT, final_y))
             
             calculated_positions.append({
                 'car': car, 
@@ -133,5 +114,5 @@ if __name__ == "__main__":
     ]
     df_test = pd.DataFrame(test_data)
 
-    print("--- 初期値維持・進行抑制・インカット無効テスト ---")
+    print("--- 初期配置のみ・ロジック完全無効化テスト ---")
     generate_and_send(df_test)
