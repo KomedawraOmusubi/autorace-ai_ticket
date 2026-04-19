@@ -23,4 +23,4 @@ jobs:
         env:
           # GitHubのSettings > Secretsで設定した名前と一致させる
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        run: python test.py
+        run: python Test.py
