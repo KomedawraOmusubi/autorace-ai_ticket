@@ -22,7 +22,7 @@ def send_discord_message(content):
 # 2. 展開ロジックの設定値
 # ==========================================
 TIME_BOOST = 350
-ST_BOOST = 4@50
+ST_BOOST = 450
 
 # --- コース境界線の最終防衛ライン ---
 Y_UPPER_LIMIT = 120  # 白線より上（芝生）には絶対に行かない
