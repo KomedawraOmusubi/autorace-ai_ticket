@@ -29,10 +29,14 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 GAS_WEBAPP_URL = os.environ.get("GAS_WEBAPP_URL")
 
 def send_discord_message(content):
-    if not DISCORD_WEBHOOK_URL: return
+    if not DISCORD_WEBHOOK_URL:
+        print("Error: DISCORD_WEBHOOK_URL is not set.")
+        return
     data = {"content": content}
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json=data).raise_for_status()
+        res = requests.post(DISCORD_WEBHOOK_URL, json=data)
+        res.raise_for_status()
+        print("Discord message sent successfully.")
     except Exception as e:
         print(f"Discord送信エラー: {e}")
 
@@ -54,7 +58,9 @@ def get_driver():
 
 def print_betting_guide(df, place, race_no, info_dict):
     sdf = df.sort_values('予想スコア', ascending=False).reset_index(drop=True)
-    if sdf.empty: return
+    if sdf.empty:
+        print("Prediction result is empty.")
+        return
 
     cars = [int(sdf.iloc[i]['車']) for i in range(len(sdf))]
     scores = [float(sdf.iloc[i]['予想スコア']) for i in range(len(sdf))]
@@ -115,12 +121,16 @@ def print_betting_guide(df, place, race_no, info_dict):
     print(final_msg)
     send_discord_message(final_msg)
     
-    test_send.generate_and_send(df, DISCORD_WEBHOOK_URL)
+    try:
+        test_send.generate_and_send(df, DISCORD_WEBHOOK_URL)
+    except:
+        print("test_send error.")
 
 def main():
     now = datetime.datetime.now(TOKYO_TZ)
     today_str = now.strftime("%Y-%m-%d")
     csv_files = glob.glob("data/race_data_*.csv")
+    print(f"Found CSV files: {csv_files}")
     if not csv_files: return
 
     targets = []
@@ -130,11 +140,16 @@ def main():
             start_val = str(df['発走予定'].iloc[0]).strip()
             if start_val in ["", "-", "nan"]: continue
             dep_time = TOKYO_TZ.localize(datetime.datetime.strptime(f"{today_str} {start_val}", "%Y-%m-%d %H:%M"))
+            # 30分以内に発走するレースをターゲットにする
             if now < dep_time < (now + datetime.timedelta(minutes=30)):
                 targets.append((file, df, dep_time))
+                print(f"Target found: {file} (Dep: {start_val})")
         except: continue
 
-    if not targets: return
+    if not targets:
+        print("No races within target time window.")
+        return
+
     driver = get_driver()
     try:
         for file, df, dep_time in targets:
@@ -142,7 +157,9 @@ def main():
                 fname = os.path.basename(file).replace(".csv", "")
                 parts = fname.split("_")
                 place, race_no = parts[-2], parts[-1].replace("R", "")
-                driver.get(f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}")
+                url = f"https://autorace.jp/race_info/Program/{place}/{today_str}_{race_no}"
+                print(f"Fetching URL: {url}")
+                driver.get(url)
                 time.sleep(3)
                 wait = WebDriverWait(driver, 15)
                 
@@ -160,6 +177,8 @@ def main():
                         })
                 except: pass
 
+                print(f"Race Info: {info_dict}")
+
                 table = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "liveTable")))
                 rows = table.find_elements(By.CSS_SELECTOR, "tbody tr")
                 
@@ -170,13 +189,12 @@ def main():
                         car_no_text = cols[0].text.strip()
                         trial_t_text = cols[3].text.strip()
                         if car_no_text.isdigit():
-                            # 「欠」や無効な文字列を「-」に正規化
                             if any(x in trial_t_text for x in ["欠", "再", ".", "-"]) or trial_t_text == "0.00" or trial_t_text == "":
                                 trial_results[int(car_no_text)] = "-"
                             else:
                                 trial_results[int(car_no_text)] = trial_t_text
                 
-                # 有効な試走タイム（数値）が1つでもあるか確認
+                print(f"Trial Results Scraped: {trial_results}")
                 valid_trials = [v for v in trial_results.values() if v != "-"]
                 
                 if len(valid_trials) >= 1:
@@ -190,6 +208,7 @@ def main():
                     print_betting_guide(df, place, race_no, info_dict)
                     notify_gas_completion(place, race_no)
                 else:
+                    print("Trial times not available yet. Skipping.")
                     if now < dep_time + datetime.timedelta(minutes=15) and GAS_WEBAPP_URL:
                         r_time = (datetime.datetime.now(TOKYO_TZ) + datetime.timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M")
                         requests.post(GAS_WEBAPP_URL, json={"times": [r_time], "is_retry": True})
