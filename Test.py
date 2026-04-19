@@ -24,31 +24,24 @@ def send_discord_message(content):
 TIME_BOOST = 350
 ST_BOOST = 500
 OUTSIDE_LINE_RATIO = {
-    1: 0.0, 2: 0.0, 3: 0.0,
-    4: 0.01, 5: 0.02, 6: 0.03, 
-    7: 0.05, 8: 0.06
+    1: 0.0, 2: 0.0, 3: 0.0, 4: 0.01, 5: 0.02, 6: 0.03, 7: 0.05, 8: 0.06
 }
 ST_DRIFT_RATIO = 0.03 
 
-# --- ハンデごとのベースY座標（0m〜80mまで拡張） ---
-# 10mごとに約150pxの間隔で設定しています
-HANDICAP_Y_BASE = {
-    0:  370,   # 0m
-    10: 520,   # 10m
-    20: 670,   # 20m
-    30: 820,   # 30m
-    40: 970,   # 40m
-    50: 1120,  # 50m
-    60: 1270,  # 60m
-    70: 1420,  # 70m
-    80: 1570,  # 80m
-}
+# ハンデ10mあたりの斜めスライド量
+HANDY_X_STEP = -30  # 10mごとに左(xマイナス)へ
+HANDY_Y_STEP = 150  # 10mごとに下(yプラス)へ
 
-# --- 車番ごとのベースX座標 ---
-CAR_X_BASE = {
-    1: 270, 2: 230, 3: 260, 
-    4: 120, 5: 130, 6: 140, 
-    7: 30,  8: 40
+# 0m地点基準の車番別オフセット（理想のバラけ方）
+CAR_FORMAT_OFFSET = {
+    1: {'dx': 270, 'dy': 0},
+    2: {'dx': 230, 'dy': 90},
+    3: {'dx': 260, 'dy': 180},
+    4: {'dx': 120, 'dy': 70},
+    5: {'dx': 130, 'dy': 160},
+    6: {'dx': 140, 'dy': 250},
+    7: {'dx': 30,  'dy': 230},
+    8: {'dx': 40,  'dy': 330},
 }
 
 def generate_and_send(df):
@@ -60,40 +53,37 @@ def generate_and_send(df):
         calculated_positions = []
         for _, row in df.iterrows():
             car = int(row['車'])
-            
-            # ハンデに基づいてベースYを決定。登録がない大きなハンデは1570をデフォルトに。
             handy = int(row.get('ハンデ', 0))
-            base_y = HANDICAP_Y_BASE.get(handy, 1570)
             
-            # 車番に基づいてベースXを決定
-            base_x = CAR_X_BASE.get(car, 150)
+            # 1. ハンデによる斜めスライド計算
+            handy_factor = handy / 10
+            shift_x = handy_factor * HANDY_X_STEP
+            shift_y = handy_factor * HANDY_Y_STEP
             
-            # タイムとSTの読み込み
-            trial_val = str(row.get('試走T', '')).strip()
-            if trial_val in ["", "-", "nan", "欠車"]: continue
+            # 2. 車番ごとの基本配置
+            offset = CAR_FORMAT_OFFSET.get(car, {'dx': 150, 'dy': 0})
             
-            try:
-                trial_time = float(trial_val)
-                st_val = str(row.get('平均st', '')).strip()
-                avg_st = float(st_val) if st_val not in ["", "-", "nan"] else 0.25
-            except: continue
+            start_x = offset['dx'] + shift_x
+            start_y = 350 + offset['dy'] + shift_y
+            
+            # 3. タイムとSTによる移動計算
+            trial_time = float(row.get('試走T', 3.45))
+            avg_st = float(row.get('平均st', 0.25))
 
-            # 縦移動（速いほど上へ）
             total_upward = max(0, (3.45 - trial_time) * TIME_BOOST) + max(0, (0.25 - avg_st) * ST_BOOST)
             
-            # 横移動
             base_cut_ratio = max(0, 0.08 - OUTSIDE_LINE_RATIO.get(car, 0.0))
             x_cut = total_upward * base_cut_ratio
             drift = (avg_st - 0.25) * ST_BOOST * ST_DRIFT_RATIO if avg_st > 0.25 else 0
             
-            final_x = base_x - x_cut + drift
-            final_y = base_y - total_upward
+            final_x = start_x - x_cut + drift
+            final_y = start_y - total_upward
             
-            # リミッター（1号車のスタートライン 370px 付近を最前線とする）
+            # リミッター（350付近を最前線とする）
             calculated_positions.append({
                 'car': car, 
                 'x': int(max(30, final_x)), 
-                'y': int(max(370, final_y))
+                'y': int(max(350, final_y))
             })
 
         if calculated_positions:
@@ -106,24 +96,24 @@ def generate_and_send(df):
         return False
 
 # ==========================================
-# 3. テスト実行
+# 3. テスト実行（ハンデ混在データ）
 # ==========================================
 if __name__ == "__main__":
-    # 0mから80mまでの混在レースを想定したテスト
+    # 0mから80mまで、斜めの並びを確認するためのテストデータ
     test_data = [
         {'車': 1, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 0},
-        {'車': 2, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 20},
-        {'車': 3, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 20},
-        {'車': 4, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 50},
-        {'車': 5, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 50},
-        {'車': 6, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 80},
-        {'車': 7, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 80},
+        {'車': 2, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 10},
+        {'車': 3, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 10},
+        {'車': 4, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 20},
+        {'車': 5, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 30},
+        {'車': 6, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 50},
+        {'車': 7, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 70},
         {'車': 8, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 80},
     ]
     df_test = pd.DataFrame(test_data)
 
     print("--- 処理開始 ---")
-    send_discord_message("🔥 ハンデ80m対応・最終ロジックテスト配信 🔥")
+    send_discord_message("🔥 斜めハンデ対応・全車テスト配信 🔥")
     if generate_and_send(df_test):
         print("成功しました")
     else:
