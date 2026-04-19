@@ -47,7 +47,7 @@ def generate_and_send(df):
             6: {'x': 200, 'y': 760},
             7: {'x': 80,  'y': 720}, 
             8: {'x': 130, 'y': 800},
-        
+        }
         
         calculated_positions = []
         for _, row in df.iterrows():
