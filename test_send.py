@@ -2,8 +2,8 @@ import os
 import visualizer
 
 # --- 設定値（動きをマイルドに調整） ---
-TIME_BOOST = 800   # 試走0.01秒 = 8px上昇
-ST_BOOST = 1000    # ST 0.01秒 = 10px上昇
+TIME_BOOST = 600   # 試走0.01秒 = 8px上昇
+ST_BOOST = 800    # ST 0.01秒 = 10px上昇
 IN_CUT_RATIO = 0.08 # インへの切り込み
 
 
@@ -29,12 +29,12 @@ def generate_and_send(df, webhook_url):
         layout_handicap = {
             1: {'x': 230,            'y': 380},
             2: {'x': 170,            'y': 520},
-            3: {'x': 210,            'y': 540},
-            4: {'x': 130,            'y': 680},
-            5: {'x': 160,            'y': 700},
-            6: {'x': 200,            'y': 720}, # よりイン(左)へ
-            7: {'x': 110,             'y': 860}, # よりイン(左)へ
-            8: {'x': 150,             'y': 880}, # よりイン(左)へ
+            3: {'x': 210,            'y': 560},
+            4: {'x': 130,            'y': 700},
+            5: {'x': 160,            'y': 720},
+            6: {'x': 190,            'y': 740}, # よりイン(左)へ
+            7: {'x': 110,             'y': 880}, # よりイン(左)へ
+            8: {'x': 150,             'y': 900}, # よりイン(左)へ
         }
 
         # --- オープン戦用ベース ---
@@ -94,7 +94,7 @@ def generate_and_send(df, webhook_url):
             final_x = base['x'] - x_cut
             
             # 制限
-            final_y = max(490, final_y)
+            final_y = max(510, final_y)
             final_x = max(30, final_x)
             
             calculated_positions.append({
