@@ -2,9 +2,9 @@ import os
 import visualizer
 
 # --- 設定値（動きをマイルドに調整） ---
-TIME_BOOST = 600   # 試走0.01秒 = 8px上昇
-ST_BOOST = 800    # ST 0.01秒 = 10px上昇
-IN_CUT_RATIO = 0.04 # インへの切り込み
+TIME_BOOST = 300   # 試走0.01秒 = 8px上昇
+ST_BOOST = 400    # ST 0.01秒 = 10px上昇
+IN_CUT_RATIO = 0.02 # インへの切り込み
 
 
 """
