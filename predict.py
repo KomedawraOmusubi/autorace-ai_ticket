@@ -60,7 +60,7 @@ def print_betting_guide(df, place, race_no, info_dict):
     ana_candidates = sdf.iloc[3:][(sdf['上昇評価'] >= 10) | (sdf['激変評価'] >= 10) | (sdf['追い上げスコア'] >= 15)]
     ana = int(ana_candidates.iloc[0]['車']) if not ana_candidates.empty else None
 
-    msg = [f"**【{place} {race_no}R】 直前予想（プロ仕様・全補正統合版）**"]
+    msg = [f"**【{place} {race_no}R】 直前予想 **"]
     msg.append(f"状況: {info_dict['天候']} / 路面:{info_dict['走路状況']}({info_dict['走路温度']}℃)")
     msg.append("```")
     marks = ["◎", "○", "▲", "△", "注"]
