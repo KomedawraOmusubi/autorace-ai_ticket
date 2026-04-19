@@ -6,7 +6,7 @@ import pytz
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
 def extract_metrics(text):
-    if pd.isna(text) or text == "-" or str(text).strip() == "":
+    if pd.isna(text) or text == "-" or str(text).strip() == "" or "欠" in str(text):
         return None, None, None, None
     times = re.findall(r"\d+\.\d+", str(text))
     rank_match = re.search(r"(\d+)着", str(text))
@@ -19,6 +19,14 @@ def extract_metrics(text):
 def calculate_predictions(df, place, info_dict, weather_prefix="良5"):
     df = df.copy()
 
+    # --- 欠場処理：試走TがNaN、空文字、「欠」など数値化できない選手を除外 ---
+    if '試走T' in df.columns:
+        # 文字列に「欠」が含まれる場合も考慮しつつ、数値以外をNaNに変換
+        df['試走T'] = pd.to_numeric(df['試走T'].astype(str).replace('.*欠.*', None, regex=True), errors='coerce')
+        # 試走Tが取れない（欠場）選手をデータから削除し、インデックスを振り直す
+        df = df.dropna(subset=['試走T']).reset_index(drop=True)
+    # ------------------------------------------------------------------
+
     # 過去5走データの展開
     for i in range(1, 6):
         col_name = f"{weather_prefix}_前{i}"
@@ -29,7 +37,7 @@ def calculate_predictions(df, place, info_dict, weather_prefix="良5"):
             df[f'前ST_{i}'] = metrics.apply(lambda x: x[2])
             df[f'前順位_{i}'] = metrics.apply(lambda x: x[3])
 
-    num_cols = ['試走T', 'ハンデ', '偏差']
+    num_cols = ['ハンデ', '偏差']
     for col in num_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -103,17 +111,21 @@ def calculate_predictions(df, place, info_dict, weather_prefix="良5"):
             min_st = subset['平均st'].min()
             if not pd.isna(min_st):
                 df.loc[mask & (df['平均st'] == min_st), 'ST評価'] += 10
-            for j in range(len(subset) - 1):
-                curr_idx, out_idx = subset.index[j], subset.index[j+1]
-                if pd.notnull(subset.loc[curr_idx, '平均st']) and pd.notnull(subset.loc[out_idx, '平均st']):
-                    if subset.loc[curr_idx, '平均st'] <= (subset.loc[out_idx, '平均st'] + 0.01):
+            
+            # サブセット内での隣接比較
+            idxs = subset.index.tolist()
+            for j in range(len(idxs) - 1):
+                curr_idx, out_idx = idxs[j], idxs[j+1]
+                if pd.notnull(df.loc[curr_idx, '平均st']) and pd.notnull(df.loc[out_idx, '平均st']):
+                    if df.loc[curr_idx, '平均st'] <= (df.loc[out_idx, '平均st'] + 0.01):
                         df.loc[curr_idx, 'ST評価'] += 7
 
     # 9. 【試走落差警戒】
-    avg_st_rank = df['平均st'].rank(ascending=False)
-    best_trial_car = df['試走T'].idxmin()
-    if avg_st_rank.loc[best_trial_car] >= (len(df) - 1):
-        df.loc[best_trial_car, 'ST評価'] -= 8
+    if not df.empty:
+        avg_st_rank = df['平均st'].rank(ascending=False)
+        best_trial_car = df['試走T'].idxmin()
+        if pd.notnull(best_trial_car) and avg_st_rank.loc[best_trial_car] >= (len(df) - 1):
+            df.loc[best_trial_car, 'ST評価'] -= 8
 
     # 10. 【重ハン救済・追い上げ性能】
     df['100m単価'] = df['直前予想競走T'] / 31.0
