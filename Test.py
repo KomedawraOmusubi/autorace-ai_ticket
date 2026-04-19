@@ -21,8 +21,11 @@ def send_discord_message(content):
 # ==========================================
 # 2. 展開ロジックの設定値
 # ==========================================
+# 試走タイムとSTの影響力（ブースト値）
 TIME_BOOST = 350
 ST_BOOST = 500
+
+# 外枠ほどインに絞り込みすぎないための比率
 OUTSIDE_LINE_RATIO = {
     1: 0.0, 2: 0.0, 3: 0.0, 4: 0.01, 5: 0.02, 6: 0.03, 7: 0.05, 8: 0.06
 }
@@ -32,7 +35,7 @@ ST_DRIFT_RATIO = 0.03
 HANDY_X_STEP = -30  # 10mごとに左(xマイナス)へ
 HANDY_Y_STEP = 150  # 10mごとに下(yプラス)へ
 
-# 0m地点基準の車番別オフセット（理想のバラけ方）
+# --- 0m地点基準のバラけ方（画像再現：7を6の後ろ、8をその横に配置） ---
 CAR_FORMAT_OFFSET = {
     1: {'dx': 270, 'dy': 0},
     2: {'dx': 230, 'dy': 90},
@@ -40,8 +43,8 @@ CAR_FORMAT_OFFSET = {
     4: {'dx': 120, 'dy': 70},
     5: {'dx': 130, 'dy': 160},
     6: {'dx': 140, 'dy': 250},
-    7: {'dx': 30,  'dy': 230},
-    8: {'dx': 40,  'dy': 330},
+    7: {'dx': 140, 'dy': 340}, # 6号車の真後ろ
+    8: {'dx': 50,  'dy': 340}, # 7号車の左横
 }
 
 def generate_and_send(df):
@@ -55,23 +58,27 @@ def generate_and_send(df):
             car = int(row['車'])
             handy = int(row.get('ハンデ', 0))
             
-            # 1. ハンデによる斜めスライド計算
-            handy_factor = handy / 10
-            shift_x = handy_factor * HANDY_X_STEP
-            shift_y = handy_factor * HANDY_Y_STEP
+            # --- 横方向(x)のリミッター：ハンデ30mを上限にする ---
+            # これにより、ハンデ40m以上の車も8号車のラインより外にはいかない
+            effective_handy_x = min(handy, 30)
+            shift_x = (effective_handy_x / 10) * HANDY_X_STEP
             
-            # 2. 車番ごとの基本配置
+            # 縦方向(y)はハンデ通りに下げ続ける
+            shift_y = (handy / 10) * HANDY_Y_STEP
+            
+            # 基準位置 ＝ (0m基準オフセット) ＋ (ハンデスライド)
             offset = CAR_FORMAT_OFFSET.get(car, {'dx': 150, 'dy': 0})
-            
             start_x = offset['dx'] + shift_x
             start_y = 350 + offset['dy'] + shift_y
             
-            # 3. タイムとSTによる移動計算
+            # タイムとSTによる移動計算
             trial_time = float(row.get('試走T', 3.45))
             avg_st = float(row.get('平均st', 0.25))
 
+            # 上への移動量
             total_upward = max(0, (3.45 - trial_time) * TIME_BOOST) + max(0, (0.25 - avg_st) * ST_BOOST)
             
+            # 横移動（絞り込みとST遅れによる膨らみ）
             base_cut_ratio = max(0, 0.08 - OUTSIDE_LINE_RATIO.get(car, 0.0))
             x_cut = total_upward * base_cut_ratio
             drift = (avg_st - 0.25) * ST_BOOST * ST_DRIFT_RATIO if avg_st > 0.25 else 0
@@ -79,11 +86,12 @@ def generate_and_send(df):
             final_x = start_x - x_cut + drift
             final_y = start_y - total_upward
             
-            # リミッター（350付近を最前線とする）
+            # --- リミッターの解除 ---
+            # yの最小値を350から50へ引き上げ、1号車より前への突き抜けを許可
             calculated_positions.append({
                 'car': car, 
                 'x': int(max(30, final_x)), 
-                'y': int(max(350, final_y))
+                'y': int(max(50, final_y))
             })
 
         if calculated_positions:
@@ -96,24 +104,26 @@ def generate_and_send(df):
         return False
 
 # ==========================================
-# 3. テスト実行（ハンデ混在データ）
+# 3. テスト実行
 # ==========================================
 if __name__ == "__main__":
-    # 0mから80mまで、斜めの並びを確認するためのテストデータ
+    # 0m〜30mの基本並び ＋ 50mハンデの突き抜けテスト
     test_data = [
-        {'車': 1, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 0},
-        {'車': 2, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 10},
-        {'車': 3, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 10},
-        {'車': 4, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 20},
-        {'車': 5, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 20},
-        {'車': 6, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 20},
-        {'車': 7, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 30},
-        {'車': 8, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 30},
+        {'車': 1, '試走T': 3.40, '平均st': 0.15, 'ハンデ': 0},
+        {'車': 2, '試走T': 3.39, '平均st': 0.15, 'ハンデ': 20},
+        {'車': 3, '試走T': 3.38, '平均st': 0.15, 'ハンデ': 20},
+        {'車': 4, '試走T': 3.37, '平均st': 0.15, 'ハンデ': 30},
+        {'車': 5, '試走T': 3.36, '平均st': 0.15, 'ハンデ': 30},
+        {'車': 6, '試走T': 3.35, '平均st': 0.15, 'ハンデ': 30},
+        {'車': 7, '試走T': 3.30, '平均st': 0.15, 'ハンデ': 40},
+        
+# 爆速の50mハンデ車（1号車をぶち抜く設定）
+        {'車': 8, '試走T': 3.27, '平均st': 0.10, 'ハンデ': 50}, 
     ]
     df_test = pd.DataFrame(test_data)
 
     print("--- 処理開始 ---")
-    send_discord_message("🔥 斜めハンデ対応・全車テスト配信 🔥")
+    send_discord_message("🔥 リミッター解除・ハンデ連動テスト配信 🔥")
     if generate_and_send(df_test):
         print("成功しました")
     else:
