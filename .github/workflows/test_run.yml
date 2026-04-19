@@ -17,14 +17,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # visualizerとtest.pyに必要なライブラリをすべてインストール
+          # 必要なライブラリをインストール
           pip install pandas requests Pillow
 
       - name: Run Test Script
         env:
-          # ここが重要！Python側の os.environ.get("WEBHOOK_URL") と一致させる
-         DISCORD_WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          # 左辺：Pythonコードの os.environ.get("DISCORD_WEBHOOK_URL") と一致させる
+          # 右辺：GitHub Secrets に登録した名前「DISCORD_WEBHOOK_URL」と一致させる
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python Test.py
-
-
-              
