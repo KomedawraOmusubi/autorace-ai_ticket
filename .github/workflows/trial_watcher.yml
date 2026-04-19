@@ -43,6 +43,7 @@ jobs:
           TZ: 'Asia/Tokyo'
           # GitHubのSettings > Secretsで設定した名前と一致させる
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
 
       - name: Commit and Push Updated CSVs
         run: |
