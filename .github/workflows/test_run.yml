@@ -24,4 +24,4 @@ jobs:
         env:
           # ここが重要！Python側の os.environ.get("WEBHOOK_URL") と一致させる
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        run: python test.py
+        run: python Test.py
