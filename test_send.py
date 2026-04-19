@@ -1,18 +1,15 @@
 import os
 import visualizer
 
-# --- 設定値（動きをマイルドに調整） ---
-# 以前の半分程度に抑え、現実的な展開図に近づけました
-TIME_BOOST = 1000  # 試走0.01秒 = 10px上昇
-ST_BOOST = 1200    # ST 0.01秒 = 12px上昇
-
-# 上昇に伴うインへの切り込みも少し抑えめに設定
-IN_CUT_RATIO = 0.10
+# --- 設定値（動きをさらにマイルドに：1px単位の微調整） ---
+TIME_BOOST = 800   # 試走0.01秒 = 8px上昇
+ST_BOOST = 1000    # ST 0.01秒 = 10px上昇
+IN_CUT_RATIO = 0.08 # インへの切り込みもさらに抑えめ
 
 def generate_and_send(df, webhook_url):
     """メインコードからDFを受け取って画像を送信するメイン関数"""
     try:
-        # --- ハンデ戦用ベース（初期値） ---
+        # ハンデ戦用ベース
         layout_handicap = {
             1: {'x': 230,            'y': 480},
             2: {'x': 260 - 90,       'y': 520},
@@ -24,7 +21,7 @@ def generate_and_send(df, webhook_url):
             8: {'x': 420 - (30 * 9), 'y': 1010},
         }
 
-        # --- オープン戦用ベース ---
+        # オープン戦用ベース
         layout_open = {
             1: {'x': 70, 'y': 480},
             2: {'x': 65, 'y': 570},
@@ -36,7 +33,7 @@ def generate_and_send(df, webhook_url):
             8: {'x': 35, 'y': 1050},
         }
 
-        # --- レイアウト判定ロジック ---
+        # レイアウト判定
         car6_data = df[df['車'] == 6]
         is_open_race = False
         if not car6_data.empty:
@@ -46,28 +43,36 @@ def generate_and_send(df, webhook_url):
             except: pass
         
         current_layout = layout_open if is_open_race else layout_handicap
-        mode_label = "オープン戦" if is_open_race else "ハンデ戦"
-        
         calculated_positions = []
+
         for _, row in df.iterrows():
             car = int(row['車'])
-            if car not in current_layout: continue
             
-            # --- 試走データのチェック（空・欠車・異常値を除外） ---
+            # 1. まずレイアウトに車番があるか確認
+            if car not in current_layout:
+                continue
+            
+            # 2. baseを定義（エラー回避のため、試走チェックより先に定義）
+            base = current_layout[car]
+            
+            # 3. 試走データのチェック（空・欠車・異常値を除外）
             trial_val = str(row.get('試走T', '')).strip()
-            if trial_val in ["", "-", "nan", "欠車", "None"]:
+            if trial_val in ["", "-", "nan", "欠車", "None", "."]:
                 print(f"{car}号車は試走データがないため除外します")
                 continue
 
             try:
                 trial_time = float(trial_val)
-                avg_st = float(row.get('平均st', 0.30))
-                if trial_time == 0: continue # 0秒も除外
+                # 平均STが空の場合は0.25（動かない基準）を入れる
+                st_val = str(row.get('平均st', '')).strip()
+                avg_st = float(st_val) if st_val not in ["", "-", "nan"] else 0.25
+                
+                if trial_time <= 0: continue
             except (ValueError, TypeError):
                 continue
 
             # --- 上昇量（Y軸）の計算 ---
-            # 3.45 / 0.25 を「基準（上昇ほぼなし）」のラインに設定
+            # 基準値より速い（数値が小さい）分だけ上昇。遅ければ0。
             upward_dist_trial = max(0, (3.45 - trial_time) * TIME_BOOST)
             upward_dist_st = max(0, (0.25 - avg_st) * ST_BOOST)
             total_upward = upward_dist_trial + upward_dist_st
@@ -78,9 +83,9 @@ def generate_and_send(df, webhook_url):
             final_y = base['y'] - total_upward
             final_x = base['x'] - x_cut
             
-            # 1号車のライン(y=480)より前には出ない
+            # 制限：1号車のライン(y=480)より前には出ない
             final_y = max(480, final_y)
-            # コース内側に寄りすぎないためのガード
+            # コース左端ガード
             final_x = max(30, final_x)
             
             calculated_positions.append({
@@ -89,16 +94,14 @@ def generate_and_send(df, webhook_url):
                 'y': int(final_y)
             })
 
-        if not calculated_positions:
-            print("表示可能な選手がいません。")
-            return False
-
-        # 画像生成
-        img_path = visualizer.create_prediction_image(calculated_positions)
-        # Discordへ送信
-        visualizer.send_to_discord(img_path, webhook_url)
-        print(f"展開予想図（{mode_label}）を送信。動きを抑制し、欠車対応を完了しました。")
-        return True
+        if calculated_positions:
+            img_path = visualizer.create_prediction_image(calculated_positions)
+            visualizer.send_to_discord(img_path, webhook_url)
+            print("展開予想図を送信しました。")
+            return True
+        return False
     except Exception as e:
         print(f"画像生成・送信エラー: {e}")
+        import traceback
+        traceback.print_exc() # 詳細なエラー箇所を出力
         return False
