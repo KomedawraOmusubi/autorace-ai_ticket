@@ -8,46 +8,20 @@ import visualizer
 # ==========================================
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-def send_discord_message(content):
-    if not WEBHOOK_URL:
-        print("エラー: DISCORD_WEBHOOK_URLが取得できていません。")
-        return
-    data = {"content": content}
-    try:
-        requests.post(WEBHOOK_URL, json=data).raise_for_status()
-    except Exception as e:
-        print(f"Discord送信エラー: {e}")
-
 # ==========================================
-# 2. 展開ロジックの設定値（修正版：移動マイルド）
+# 2. 初期配置の直接指定 (X, Y)
 # ==========================================
-# 前進量をマイルドに抑えるための係数
-TIME_BOOST = 12   # 元の35から大幅に削減
-ST_BOOST = 18    # 元の45から大幅に削減
-
-# --- コース境界線の最終防衛ライン ---
-# 1枚目よりスタートラインを下げるため下限を広げました
-Y_UPPER_LIMIT = 150  
-Y_LOWER_LIMIT = 500  # 340だと上すぎるので広げました
-X_LEFT_LIMIT = 30    
-X_RIGHT_LIMIT = 280  
-
-# ハンデによる横の広がりを少し抑える
-HANDY_X_STEP = -25  
-# ハンデによる縦の間隔を大幅に短縮（150→50）
-HANDY_Y_STEP = 50   
-
-# 【最重要】初期配置オフセットの再設計（2枚目画像を参考に縦一列＆カーブ）
-# Xを左寄りにし、白線の形状に合わせて緩やかにカーブさせながら縦に並べます
-CAR_FORMAT_OFFSET = {
-    1: {'dx': 110, 'dy': -20}, # 最も白線寄り
-    2: {'dx': 120, 'dy': 30},
-    3: {'dx': 130, 'dy': 80},
-    4: {'dx': 140, 'dy': 130},
-    5: {'dx': 150, 'dy': 180},
-    6: {'dx': 160, 'dy': 230},
-    7: {'dx': 170, 'dy': 280}, 
-    8: {'dx': 180, 'dy': 330}, 
+# 2枚目の理想図を参考に、白線に沿って縦に並ぶよう座標を直打ちします
+# X: 右へ行くほど大きい / Y: 下へ行くほど大きい
+CAR_INITIAL_POSITIONS = {
+    1: {'x': 340, 'y': 360}, # 一番上・右寄り
+    2: {'x': 270, 'y': 480},
+    3: {'x': 290, 'y': 550},
+    4: {'x': 110, 'y': 620},
+    5: {'x': 120, 'y': 680},
+    6: {'x': 130, 'y': 740},
+    7: {'x': 90,  'y': 840}, 
+    8: {'x': 90,  'y': 920}, # 一番下
 }
 
 def generate_and_send(df):
@@ -59,43 +33,19 @@ def generate_and_send(df):
         calculated_positions = []
         for _, row in df.iterrows():
             car = int(row['車'])
-            handy = int(row.get('ハンデ', 0))
             
-            # --- 1. 初期位置計算（修正版） ---
-            effective_handy_x = min(handy, 30)
-            shift_x = (effective_handy_x / 10) * HANDY_X_STEP
-            shift_y = (handy / 10) * HANDY_Y_STEP
+            # --- 1. 初期座標の取得 ---
+            # dx, dy を介さず、設定した X, Y をそのまま使用します
+            pos = CAR_INITIAL_POSITIONS.get(car, {'x': 150, 'y': 500})
             
-            # コース中央に配置するため、dxを調整した CAR_FORMAT_OFFSET を使用
-            offset = CAR_FORMAT_OFFSET.get(car, {'dx': 150, 'dy': 0})
+            final_x = pos['x']
+            final_y = pos['y']
             
-            start_x = offset['dx'] + shift_x
-            # start_y の基準を350に下げて、画面下からスタートするように変更
-            start_y = 400 + offset['dy'] + shift_y
+            # --- 2. 移動ロジック (すべて無効化) ---
+            # total_upward = 0
+            # x_cut = 0
             
-            # --- 2. 移動量計算（修正版：進み具合をマイルドに） ---
-            trial_time = float(row.get('試走T', 3.45))
-            avg_st = float(row.get('平均st', 0.25))
-            
-            # 前進のベース値（TIME_BOOST, ST_BOOSTを下げたのでマイルドに）
-            total_upward = (
-                max(0, (3.45 - trial_time) * TIME_BOOST) + 
-                max(0, (0.25 - avg_st) * ST_BOOST)
-            )
-            
-            # --- 3. イン切り込みロジック（そのまま） ---
-            x_cut = total_upward * (0.10 + (handy / 10) * 0.02)
-            
-            # --- 4. 座標統合と動的リミッター（そのまま） ---
-            final_x = max(X_LEFT_LIMIT, min(X_RIGHT_LIMIT, start_x + x_cut))
-
-            # 白線の斜めに合わせた動的上限設定（そのまま）
-            dynamic_y_upper_limit = 180 - (final_x - 30) * 0.25
-            
-            raw_y = start_y - total_upward
-            # 下限と動的上限でクランプ
-            final_y = max(dynamic_y_upper_limit, min(Y_LOWER_LIMIT, raw_y))
-            
+            # そのままの座標をリストに追加
             calculated_positions.append({
                 'car': car, 
                 'x': int(final_x),
@@ -103,6 +53,11 @@ def generate_and_send(df):
             })
 
         if calculated_positions:
+            # ログ出力して座標を確認
+            print("--- 配置確認 (固定XY) ---")
+            for p in calculated_positions:
+                print(f"車番{p['car']}: X={p['x']}, Y={p['y']}")
+            
             img_path = visualizer.create_prediction_image(calculated_positions)
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
             return True
@@ -112,20 +67,12 @@ def generate_and_send(df):
         return False
 
 # ==========================================
-# 3. テスト実行（そのまま）
+# 3. テスト実行
 # ==========================================
 if __name__ == "__main__":
-    test_data = [
-        {'車': 1, '試走T': 3.45, '平均st': 0.25, 'ハンデ': 0},
-        {'車': 2, '試走T': 3.42, '平均st': 0.20, 'ハンデ': 10},
-        {'車': 3, '試走T': 3.40, '平均st': 0.18, 'ハンデ': 10},
-        {'車': 4, '試走T': 3.38, '平均st': 0.15, 'ハンデ': 20},
-        {'車': 5, '試走T': 3.36, '平均st': 0.15, 'ハンデ': 20},
-        {'車': 6, '試走T': 3.34, '平均st': 0.14, 'ハンデ': 30},
-        {'車': 7, '試走T': 3.30, '平均st': 0.12, 'ハンデ': 40},
-        {'車': 8, '試走T': 3.25, '平均st': 0.10, 'ハンデ': 50}, 
-    ]
+    # 全車番(1-8)をテスト
+    test_data = [{'車': i} for i in range(1, 9)]
     df_test = pd.DataFrame(test_data)
-
-    print("--- 初期配置修正・最終テスト開始 ---")
+    
+    print("--- 固定座標配置テスト開始 ---")
     generate_and_send(df_test)
