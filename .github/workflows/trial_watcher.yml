@@ -12,7 +12,7 @@ on:
 jobs:
   check-and-fetch:
     runs-on: ubuntu-latest
-
+    
     # リポジトリへの書き込み権限を明示的に付与
     permissions:
       contents: write
@@ -21,8 +21,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # GASから送られてきた ref (main等) を取得する設定
+          # GASからの指定 (auto_ticket_v3.4.1) を優先してチェックアウト
           ref: ${{ github.event.client_payload.ref }}
+          # 履歴を含めて取得（push時の競合回避のため）
           fetch-depth: 0
 
       - name: Set up Python
@@ -32,27 +33,26 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # 必要なライブラリをインストール
+          # requests, numpy を追加して predict.py の動作を確実にします
           pip install pandas selenium webdriver-manager pytz requests numpy
 
       - name: Run Trial Fetcher
         run: python predict.py
         env:
           TZ: 'Asia/Tokyo'
-          # GitHubのSettings > Secretsから環境変数へ紐付け
+          # GitHubのSettings > Secretsで設定した名前と一致させる
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
 
       - name: Commit and Push Updated CSVs
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-
+          
           # 変更がある場合のみコミットしてプッシュ
           git add data/*.csv
           if ! git diff --cached --quiet; then
             git commit -m "Update trial times and predictions: $(date +'%Y-%m-%d %H:%M:%S')"
-            # プッシュ先もGASからの指定ブランチに合わせる
+            # 特定のブランチ名ではなく、呼び出し元のブランチへ動的にプル/プッシュ
             git pull --rebase origin ${{ github.event.client_payload.ref }}
             git push origin ${{ github.event.client_payload.ref }}
           else
