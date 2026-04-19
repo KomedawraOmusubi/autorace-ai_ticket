@@ -1,7 +1,7 @@
 name: Test Prediction Run
 
 on:
-  workflow_dispatch: # これを入れることで、GitHubの画面から手動で実行ボタンが押せるようになります
+  workflow_dispatch: # GitHubのブラウザ画面から手動実行できるようにする
 
 jobs:
   test-job:
@@ -17,10 +17,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas requests Pillow  # visualizerが必要とするライブラリを並べてください
+          # visualizerとtest.pyに必要なライブラリをすべてインストール
+          pip install pandas requests Pillow
 
       - name: Run Test Script
         env:
-          # GitHubのSettings > Secretsで設定した名前と一致させる
+          # ここが重要！Python側の os.environ.get("WEBHOOK_URL") と一致させる
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        run: python Test.py
+        run: python test.py
