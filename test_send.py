@@ -11,7 +11,7 @@ def generate_and_send(df, webhook_url):
     try:
         # --- ハンデ戦用ベース（6, 7, 8号車のxをさらにイン寄りへ修正） ---
         layout_handicap = {
-            1: {'x': 230,            'y': 430},
+            1: {'x': 230,            'y': 410},
             2: {'x': 170,            'y': 510},
             3: {'x': 210,            'y': 580},
             4: {'x': 130,            'y': 630},
@@ -78,7 +78,7 @@ def generate_and_send(df, webhook_url):
             final_x = base['x'] - x_cut
             
             # 制限
-            final_y = max(470, final_y)
+            final_y = max(490, final_y)
             final_x = max(30, final_x)
             
             calculated_positions.append({
