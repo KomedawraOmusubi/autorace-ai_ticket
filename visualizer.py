@@ -2,6 +2,7 @@ import os
 import requests
 from PIL import Image
 
+
 def create_prediction_image(positions):
     """
     画像を合成する関数
