@@ -46,7 +46,7 @@ def send_to_discord(image_path, webhook_url):
         return
 
     with open(image_path, 'rb') as f:
-        payload = {'content': '【オートレース展開予想テスト】'}
+        payload = {'content': '【第1コーナー展開予想】'}
         files = {'file': ('prediction.png', f, 'image/png')}
         response = requests.post(webhook_url, data=payload, files=files)
         
