@@ -33,8 +33,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # requests, numpy を追加して predict.py の動作を確実にします
-          pip install pandas selenium webdriver-manager pytz requests numpy
+          python -m pip install --upgrade pip
+          # predict.py, test_send.py, visualizer.py に必要なライブラリを網羅
+          pip install pandas selenium webdriver-manager pytz requests numpy Pillow
 
       - name: Run Trial Fetcher
         run: python predict.py
