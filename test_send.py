@@ -5,30 +5,17 @@ import visualizer
 TIME_GRAVITY = 1000  # 試走0.01秒 = 10px
 ST_GRAVITY = 2000    # ST 0.01秒 = 20px
 
-# 初期値ハンデ戦（コメントアウトで保持）
-"""
-test_positions = [
-    {'car': 1, 'x': 230,             'y': 400}, # そのまま
-    {'car': 2, 'x': 260 - 90,        'y': 520}, # 1個左へ
-    {'car': 3, 'x': 300 - 90,        'y': 600}, # 1個左へ
-    {'car': 4, 'x': 310 - (30 * 6),  'y': 680}, # 2個左へ
-    {'car': 5, 'x': 340 - (30 * 6),  'y': 770}, # 2個左へ
-    {'car': 6, 'x': 380 - (30 * 6),  'y': 860}, # 2個左へ
-    {'car': 7, 'x': 380 - (30 * 9),  'y': 930}, # 3個左へ
-    {'car': 8, 'x': 420 - (30 * 9),  'y': 1010}, # 3個左へ
-]
-"""
-
-# 計算の基準となるレイアウト
+# 【オープン戦用レイアウト】左下に縦1列で並ぶ設定
+# x: 左端からの距離 / y: 上からの距離（1000から80px刻みで配置）
 DEFAULT_LAYOUT = {
-    1: {'x': 230,            'y': 400},
-    2: {'x': 260 - 90,       'y': 520},
-    3: {'x': 300 - 90,       'y': 600},
-    4: {'x': 310 - (30 * 6), 'y': 680},
-    5: {'x': 340 - (30 * 6), 'y': 770},
-    6: {'x': 380 - (30 * 6), 'y': 860},
-    7: {'x': 380 - (30 * 9), 'y': 930},
-    8: {'x': 420 - (30 * 9), 'y': 1010},
+    1: {'x': 80, 'y': 1000},
+    2: {'x': 80, 'y': 1080},
+    3: {'x': 80, 'y': 1160},
+    4: {'x': 80, 'y': 1240},
+    5: {'x': 80, 'y': 1320},
+    6: {'x': 80, 'y': 1400},
+    7: {'x': 80, 'y': 1480},
+    8: {'x': 80, 'y': 1560},
 }
 
 def generate_and_send(df, webhook_url):
@@ -43,8 +30,9 @@ def generate_and_send(df, webhook_url):
             
             # 数値変換 (エラー時は基準値を使用)
             try:
-                trial_time = float(row['試走T'])
-                avg_st = float(row['平均st'])
+                # CSV内のカラム名が「試走T」「平均st」であることを前提
+                trial_time = float(row['試走T']) if '試走T' in row else 3.30
+                avg_st = float(row['平均st']) if '平均st' in row else 0.15
             except (ValueError, TypeError):
                 trial_time = 3.30
                 avg_st = 0.15
@@ -54,6 +42,7 @@ def generate_and_send(df, webhook_url):
             # STによる上下 (0.15基準)
             st_offset = (avg_st - 0.15) * ST_GRAVITY
             
+            # 初期配置（y）に対して変動分を合算
             final_y = base['y'] + time_diff + st_offset
             
             calculated_positions.append({
@@ -62,23 +51,35 @@ def generate_and_send(df, webhook_url):
                 'y': int(final_y)
             })
 
-        # 画像生成
+        # 画像生成 (visualizer.pyを呼び出し)
         img_path = visualizer.create_prediction_image(calculated_positions)
         # Discordへ送信
         visualizer.send_to_discord(img_path, webhook_url)
-        print("展開予想図の送信に成功しました。")
+        print("オープン戦用初期配置での画像送信に成功しました。")
         return True
     except Exception as e:
         print(f"画像生成・送信エラー: {e}")
         return False
 
-# 単体テスト用
+# --- 手動実行テスト用 ---
 if __name__ == "__main__":
     import pandas as pd
-    # テスト用のダミーデータ
+    
+    # 試走・STが基準値(3.30 / 0.15)の場合、DEFAULT_LAYOUT通りの位置に出力されます
     test_df = pd.DataFrame([
-        {'車': 1, '試走T': 3.35, '平均st': 0.18},
-        {'車': 8, '試走T': 3.28, '平均st': 0.12},
+        {'車': 1, '試走T': 3.30, '平均st': 0.15},
+        {'車': 2, '試走T': 3.30, '平均st': 0.15},
+        {'車': 3, '試走T': 3.30, '平均st': 0.15},
+        {'車': 4, '試走T': 3.30, '平均st': 0.15},
+        {'車': 5, '試走T': 3.30, '平均st': 0.15},
+        {'車': 6, '試走T': 3.30, '平均st': 0.15},
+        {'車': 7, '試走T': 3.30, '平均st': 0.15},
+        {'車': 8, '試走T': 3.30, '平均st': 0.15},
     ])
+    
+    # 環境変数からURL取得（設定されていない場合は直接URLを書き換えてテストしてください）
     url = os.environ.get("DISCORD_WEBHOOK_URL")
-    generate_and_send(test_df, url)
+    if url:
+        generate_and_send(test_df, url)
+    else:
+        print("エラー: DiscordのWebhook URLが環境変数に設定されていません。")
