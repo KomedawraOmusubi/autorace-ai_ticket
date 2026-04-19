@@ -53,31 +53,3 @@ def send_to_discord(image_path, webhook_url):
             print("Discordへの送信に成功しました。")
         else:
             print(f"送信失敗。ステータスコード: {response.status_code}")
-
-# --- このファイル単体で実行（テスト）する場合の処理 ---
-if __name__ == "__main__":
-    # GitHubのSecretsに登録した名前から取得
-    WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-    
-    # グレーの道路部分に重ならないよう、xを右へ、yの間隔を調整した初期配置
-    # 背景画像のサイズに合わせて微調整が必要ですが、まずはこれで試してみてください
-    test_positions = [
-        {'car': 1, 'x': 10, 'y': 1150},
-        {'car': 2, 'x': 30, 'y': 1200},
-        {'car': 3, 'x': 50, 'y': 1250},
-        {'car': 4, 'x': 70, 'y': 1300},
-        {'car': 5, 'x': 90, 'y': 1350},
-        {'car': 6, 'x': 110, 'y': 1400},
-        {'car': 7, 'x': 130, 'y': 1450},
-        {'car': 8, 'x': 150, 'y': 1500},
-    ]
-    
-    try:
-        print("画像生成を開始...")
-        path = create_prediction_image(test_positions)
-        
-        print("Discordへの送信を開始...")
-        send_to_discord(path, WEBHOOK_URL)
-        
-    except Exception as e:
-        print(f"実行中にエラーが発生しました: {e}")
