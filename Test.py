@@ -4,7 +4,7 @@ import requests
 import visualizer
 
 # ==========================================
-# 1. 環境変数の設定（画像の名前と一致させました）
+# 1. 環境変数の設定
 # ==========================================
 # GitHub Secretsの登録名「DISCORD_WEBHOOK_URL」を使用
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
@@ -37,14 +37,15 @@ def generate_and_send(df):
             print("エラー: Webhook URLがありません。")
             return False
 
+        # 初期配置座標
         layout_handicap = {
             1: {'x': 300, 'y': 100},
-            2: {'x': 50, 'y': 470},
+            2: {'x': 50,  'y': 470},
             3: {'x': 250, 'y': 700},
-            4: {'x': 50, 'y': 680},
+            4: {'x': 50,  'y': 680},
             5: {'x': 160, 'y': 770}, 
             6: {'x': 200, 'y': 860},
-            7: {'x': 50, 'y': 930}, 
+            7: {'x': 50,  'y': 930}, 
             8: {'x': 150, 'y': 1010},
         }
         
@@ -56,8 +57,10 @@ def generate_and_send(df):
             trial_time = float(row.get('試走T', 3.45))
             avg_st = float(row.get('平均st', 0.25))
 
+            # 縦移動
             total_upward = max(0, (3.45 - trial_time) * TIME_BOOST) + max(0, (0.25 - avg_st) * ST_BOOST)
             
+            # 横移動
             base_cut_ratio = max(0, 0.08 - OUTSIDE_LINE_RATIO.get(car, 0.0))
             x_cut = total_upward * base_cut_ratio
             drift = (avg_st - 0.25) * ST_BOOST * ST_DRIFT_RATIO if avg_st > 0.25 else 0
@@ -79,16 +82,21 @@ def generate_and_send(df):
         return False
 
 if __name__ == "__main__":
-    df_test = pd.DataFrame([
+    # 全車（1〜8）のテストデータを作成
+    test_data = [
         {'車': 1, '試走T': 3.35, '平均st': 0.15},
+        {'車': 2, '試走T': 3.35, '平均st': 0.15},
         {'車': 3, '試走T': 3.35, '平均st': 0.15},
+        {'車': 4, '試走T': 3.35, '平均st': 0.15},
         {'車': 5, '試走T': 3.35, '平均st': 0.15},
         {'車': 6, '試走T': 3.35, '平均st': 0.15},
+        {'車': 7, '試走T': 3.35, '平均st': 0.15},
         {'車': 8, '試走T': 3.35, '平均st': 0.15},
-    ])
+    ]
+    df_test = pd.DataFrame(test_data)
 
     print("--- 処理開始 ---")
-    send_discord_message("🔥 展開予想ロジック調整用テスト配信 🔥")
+    send_discord_message("🔥 全車描画テスト配信 🔥")
     if generate_and_send(df_test):
         print("成功しました")
     else:
