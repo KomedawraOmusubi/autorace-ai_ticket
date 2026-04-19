@@ -23,5 +23,8 @@ jobs:
       - name: Run Test Script
         env:
           # ここが重要！Python側の os.environ.get("WEBHOOK_URL") と一致させる
-          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+         DISCORD_WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
         run: python Test.py
+
+
+              
