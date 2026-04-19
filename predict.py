@@ -16,6 +16,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+# ★ test_send.py を読み込む
+import test_send
+
 # タイムゾーン設定
 TOKYO_TZ = pytz.timezone('Asia/Tokyo')
 
@@ -260,6 +263,9 @@ def print_betting_guide(df, place, race_no, info_dict):
     final_msg = "\n".join(msg)
     print(final_msg)
     send_discord_message(final_msg)
+    
+    # ★ test_send.py の関数を呼び出して画像を送信
+    test_send.generate_and_send(df, DISCORD_WEBHOOK_URL)
 
 def main():
     now = datetime.datetime.now(TOKYO_TZ)
@@ -298,7 +304,7 @@ def main():
                         info_dict.update({
                             "天候": tds1[3].text, 
                             "気温": tds2[0].text, 
-                            "湿度": tds2[1].text, # 湿度取得追加
+                            "湿度": tds2[1].text,
                             "走路温度": tds2[2].text, 
                             "走路状況": tds2[3].text
                         })
