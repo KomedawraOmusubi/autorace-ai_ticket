@@ -1,4 +1,4 @@
-Name: Test Visualizer Image Send
+name: Test Visualizer Image Send
 
 on:
   workflow_dispatch:
