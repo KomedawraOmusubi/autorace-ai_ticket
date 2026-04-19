@@ -68,8 +68,10 @@ def generate_and_send(df):
             final_x = base['x'] - x_cut + drift
             final_y = base['y'] - total_upward
             
+            #リミッター
+            
             calculated_positions.append({
-                'car': car, 'x': int(max(30, final_x)), 'y': int(max(510, final_y))
+                'car': car, 'x': int(max(30, final_x)), 'y': int(max(470, final_y))
             })
 
         if calculated_positions:
