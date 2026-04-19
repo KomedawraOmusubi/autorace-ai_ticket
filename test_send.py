@@ -3,7 +3,7 @@ import visualizer
 
 # --- 設定値（微調整用） ---
 TIME_GRAVITY = 1000  # 試走0.01秒 = 10px
-ST_GRAVITY = 2000    # ST 0.01秒 = 20px (STの重要度を高めに設定)
+ST_GRAVITY = 2000    # ST 0.01秒 = 20px
 
 # 初期値ハンデ戦（コメントアウトで保持）
 """
@@ -31,58 +31,54 @@ DEFAULT_LAYOUT = {
     8: {'x': 420 - (30 * 9), 'y': 1010},
 }
 
-def calculate_positions(race_data):
-    """
-    race_data: [{'car': 1, 'time': 3.32, 'st': 0.12}, ...]
-    """
-    calculated = []
-    for data in race_data:
-        car = data['car']
-        base = DEFAULT_LAYOUT[car]
-        
-        # 1. 試走タイムによる上下 (3.30基準)
-        time_diff = (data['time'] - 3.30) * TIME_GRAVITY
-        
-        # 2. STによる上下 (0.15基準)
-        # STが早い(0.12など)と、(0.12 - 0.15) * 2000 = -60px (上へ)
-        st_offset = (data['st'] - 0.15) * ST_GRAVITY
-        
-        final_y = base['y'] + time_diff + st_offset
-        
-        calculated.append({
-            'car': car,
-            'x': base['x'],
-            'y': int(final_y)
-        })
-    return calculated
-
-# --- メイン処理 ---
-WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-
-def main():
-    # テストデータ（試走タイム と 平均ST を入力）
-    test_race_data = [
-        {'car': 1, 'time': 3.35, 'st': 0.18}, # 試走遅め・ST遅め = かなり下がる
-        {'car': 2, 'time': 3.32, 'st': 0.11}, # STが早いので、1号車を飲み込む予想
-        {'car': 3, 'time': 3.30, 'st': 0.15},
-        {'car': 4, 'time': 3.30, 'st': 0.15},
-        {'car': 5, 'time': 3.30, 'st': 0.15},
-        {'car': 6, 'time': 3.30, 'st': 0.15},
-        {'car': 7, 'time': 3.30, 'st': 0.15},
-        {'car': 8, 'time': 3.28, 'st': 0.12}, # 試走もSTも最強 = 圧倒的な追い上げ
-    ]
-
+def generate_and_send(df, webhook_url):
+    """メインコードからDFを受け取って画像を送信するメイン関数"""
     try:
-        positions = calculate_positions(test_race_data)
-        
-        print("画像生成中...")
-        img_path = visualizer.create_prediction_image(positions)
-        
-        print("Discord送信中...")
-        visualizer.send_to_discord(img_path, WEBHOOK_URL)
-        print("送信完了しました！")
-    except Exception as e:
-        print(f"エラーが発生しました: {e}")
+        calculated_positions = []
+        for _, row in df.iterrows():
+            car = int(row['車'])
+            if car not in DEFAULT_LAYOUT: continue
+            
+            base = DEFAULT_LAYOUT[car]
+            
+            # 数値変換 (エラー時は基準値を使用)
+            try:
+                trial_time = float(row['試走T'])
+                avg_st = float(row['平均st'])
+            except (ValueError, TypeError):
+                trial_time = 3.30
+                avg_st = 0.15
 
+            # 試走タイムによる上下 (3.30基準)
+            time_diff = (trial_time - 3.30) * TIME_GRAVITY
+            # STによる上下 (0.15基準)
+            st_offset = (avg_st - 0.15) * ST_GRAVITY
+            
+            final_y = base['y'] + time_diff + st_offset
+            
+            calculated_positions.append({
+                'car': car,
+                'x': base['x'],
+                'y': int(final_y)
+            })
+
+        # 画像生成
+        img_path = visualizer.create_prediction_image(calculated_positions)
+        # Discordへ送信
+        visualizer.send_to_discord(img_path, webhook_url)
+        print("展開予想図の送信に成功しました。")
+        return True
+    except Exception as e:
+        print(f"画像生成・送信エラー: {e}")
+        return False
+
+# 単体テスト用
 if __name__ == "__main__":
-    main()
+    import pandas as pd
+    # テスト用のダミーデータ
+    test_df = pd.DataFrame([
+        {'車': 1, '試走T': 3.35, '平均st': 0.18},
+        {'車': 8, '試走T': 3.28, '平均st': 0.12},
+    ])
+    url = os.environ.get("DISCORD_WEBHOOK_URL")
+    generate_and_send(test_df, url)
