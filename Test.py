@@ -19,30 +19,35 @@ def send_discord_message(content):
         print(f"Discord送信エラー: {e}")
 
 # ==========================================
-# 2. 展開ロジックの設定値（初期配置のみ使用）
+# 2. 展開ロジックの設定値（修正版：移動マイルド）
 # ==========================================
-TIME_BOOST = 35
-ST_BOOST = 45
+# 前進量をマイルドに抑えるための係数
+TIME_BOOST = 12   # 元の35から大幅に削減
+ST_BOOST = 18    # 元の45から大幅に削減
 
 # --- コース境界線の最終防衛ライン ---
-Y_UPPER_LIMIT = 120  
-Y_LOWER_LIMIT = 340  
+# 1枚目よりスタートラインを下げるため下限を広げました
+Y_UPPER_LIMIT = 150  
+Y_LOWER_LIMIT = 500  # 340だと上すぎるので広げました
 X_LEFT_LIMIT = 30    
 X_RIGHT_LIMIT = 280  
 
-HANDY_X_STEP = -30  
-HANDY_Y_STEP = 150  
+# ハンデによる横の広がりを少し抑える
+HANDY_X_STEP = -25  
+# ハンデによる縦の間隔を大幅に短縮（150→50）
+HANDY_Y_STEP = 50   
 
-# 初期値（この配置のみを反映します）
+# 【最重要】初期配置オフセットの再設計（2枚目画像を参考に縦一列＆カーブ）
+# Xを左寄りにし、白線の形状に合わせて緩やかにカーブさせながら縦に並べます
 CAR_FORMAT_OFFSET = {
-    1: {'dx': 270, 'dy': 0},
-    2: {'dx': 230, 'dy': 90},
-    3: {'dx': 260, 'dy': 180},
-    4: {'dx': 120, 'dy': 70},
-    5: {'dx': 130, 'dy': 160},
-    6: {'dx': 140, 'dy': 250},
-    7: {'dx': 140, 'dy': 340}, 
-    8: {'dx': 50,  'dy': 340}, 
+    1: {'dx': 110, 'dy': -20}, # 最も白線寄り
+    2: {'dx': 120, 'dy': 30},
+    3: {'dx': 130, 'dy': 80},
+    4: {'dx': 140, 'dy': 130},
+    5: {'dx': 150, 'dy': 180},
+    6: {'dx': 160, 'dy': 230},
+    7: {'dx': 170, 'dy': 280}, 
+    8: {'dx': 180, 'dy': 330}, 
 }
 
 def generate_and_send(df):
@@ -56,32 +61,40 @@ def generate_and_send(df):
             car = int(row['車'])
             handy = int(row.get('ハンデ', 0))
             
-            # --- 1. 初期位置計算（ここだけを活かす） ---
+            # --- 1. 初期位置計算（修正版） ---
             effective_handy_x = min(handy, 30)
             shift_x = (effective_handy_x / 10) * HANDY_X_STEP
             shift_y = (handy / 10) * HANDY_Y_STEP
             
+            # コース中央に配置するため、dxを調整した CAR_FORMAT_OFFSET を使用
             offset = CAR_FORMAT_OFFSET.get(car, {'dx': 150, 'dy': 0})
             
-            # 計算結果をそのまま初期値にする
-            final_x = offset['dx'] + shift_x
-            final_y = 350 + offset['dy'] + shift_y
+            start_x = offset['dx'] + shift_x
+            # start_y の基準を350に下げて、画面下からスタートするように変更
+            start_y = 400 + offset['dy'] + shift_y
             
-            # --- 2. 移動量計算（コメントアウト・無効化） ---
-            # trial_time = float(row.get('試走T', 3.45))
-            # avg_st = float(row.get('平均st', 0.25))
-            # total_upward = max(0, (3.45 - trial_time) * TIME_BOOST) + max(0, (0.25 - avg_st) * ST_BOOST)
-            total_upward = 0
+            # --- 2. 移動量計算（修正版：進み具合をマイルドに） ---
+            trial_time = float(row.get('試走T', 3.45))
+            avg_st = float(row.get('平均st', 0.25))
             
-            # --- 3. イン切り込みロジック（コメントアウト・無効化） ---
-            # x_cut = total_upward * (0.15 + (handy / 10) * 0.03)
-            # drift = (avg_st - 0.25) * ST_BOOST * 0.01 if avg_st > 0.25 else 0
-            x_cut = 0
-            drift = 0
+            # 前進のベース値（TIME_BOOST, ST_BOOSTを下げたのでマイルドに）
+            total_upward = (
+                max(0, (3.45 - trial_time) * TIME_BOOST) + 
+                max(0, (0.25 - avg_st) * ST_BOOST)
+            )
             
-            # --- 4. 座標統合とリミッター（初期配置がはみ出さないよう一応適用） ---
-            final_x = max(X_LEFT_LIMIT, min(X_RIGHT_LIMIT, final_x))
-            final_y = max(Y_UPPER_LIMIT, min(Y_LOWER_LIMIT, final_y))
+            # --- 3. イン切り込みロジック（そのまま） ---
+            x_cut = total_upward * (0.10 + (handy / 10) * 0.02)
+            
+            # --- 4. 座標統合と動的リミッター（そのまま） ---
+            final_x = max(X_LEFT_LIMIT, min(X_RIGHT_LIMIT, start_x + x_cut))
+
+            # 白線の斜めに合わせた動的上限設定（そのまま）
+            dynamic_y_upper_limit = 180 - (final_x - 30) * 0.25
+            
+            raw_y = start_y - total_upward
+            # 下限と動的上限でクランプ
+            final_y = max(dynamic_y_upper_limit, min(Y_LOWER_LIMIT, raw_y))
             
             calculated_positions.append({
                 'car': car, 
@@ -99,7 +112,7 @@ def generate_and_send(df):
         return False
 
 # ==========================================
-# 3. テスト実行
+# 3. テスト実行（そのまま）
 # ==========================================
 if __name__ == "__main__":
     test_data = [
@@ -114,5 +127,5 @@ if __name__ == "__main__":
     ]
     df_test = pd.DataFrame(test_data)
 
-    print("--- 初期配置のみ・ロジック完全無効化テスト ---")
+    print("--- 初期配置修正・最終テスト開始 ---")
     generate_and_send(df_test)
