@@ -23,8 +23,8 @@ def create_prediction_image(positions):
         if os.path.exists(icon_path):
             car_icon = Image.open(icon_path).convert('RGBA')
             
-            # --- 画像を縮小する処理を追加 ---
-            icon_size = (90, 90)  # ここでサイズを指定（幅, 高さ）
+            # --- 画像を縮小する処理 ---
+            icon_size = (90, 90)  # 指定のサイズ
             car_icon.thumbnail(icon_size, Image.Resampling.LANCZOS)
             # ------------------------------
             
@@ -56,19 +56,20 @@ def send_to_discord(image_path, webhook_url):
 
 # --- このファイル単体で実行（テスト）する場合の処理 ---
 if __name__ == "__main__":
-    # GitHubのSecretsに登録した名前から取得6
+    # GitHubのSecretsに登録した名前から取得
     WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
     
-    # テスト用の配置データ
+    # グレーの道路部分に重ならないよう、xを右へ、yの間隔を調整した初期配置
+    # 背景画像のサイズに合わせて微調整が必要ですが、まずはこれで試してみてください
     test_positions = [
-        {'car': 1, 'x': 100, 'y': 200},
-        {'car': 2, 'x': 150, 'y': 250},
-        {'car': 3, 'x': 200, 'y': 300},
-        {'car': 4, 'x': 250, 'y': 350},
-        {'car': 5, 'x': 300, 'y': 400},
-        {'car': 6, 'x': 350, 'y': 450},
-        {'car': 7, 'x': 400, 'y': 500},
-        {'car': 8, 'x': 450, 'y': 550},
+        {'car': 1, 'x': 250, 'y': 150},
+        {'car': 2, 'x': 280, 'y': 200},
+        {'car': 3, 'x': 310, 'y': 250},
+        {'car': 4, 'x': 340, 'y': 300},
+        {'car': 5, 'x': 370, 'y': 350},
+        {'car': 6, 'x': 400, 'y': 400},
+        {'car': 7, 'x': 430, 'y': 450},
+        {'car': 8, 'x': 460, 'y': 500},
     ]
     
     try:
