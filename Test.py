@@ -16,7 +16,7 @@ HANDE_LINE_COORDS = {
     20: {'x': 85,  'y': 345}, 
     30: {'x': 70,  'y': 315}, 
     40: {'x': 45,  'y': 280}, 
-    50: {'x': 35,  'y': 200}, 
+    50: {'x': 35,  'y': 240}, 
 }
 
 # --- コースのリミッター（ネズミ色の範囲内のみ許可） ---
@@ -48,7 +48,7 @@ def calculate_full_positions(df):
             # 若番(idx小)ほど shiftがプラスになり「右(+)・上(-)」＝右上(内)へ
             shift = ((num_cars - 1) / 2 - idx) * 20 
             pos['x'] += shift
-            pos['y'] -= shift * 1.0  # 傾き1.0で右上方向へ
+            pos['y'] -= shift * 1.1  # 傾き1.0で右上方向へ
         else:
             # 【50m以降】8番が最外(左下)、7番が内(右上)
             # 7,8番の場合：7番(idx 0) -> reverse 1 / 8番(idx 1) -> reverse 0
@@ -57,7 +57,7 @@ def calculate_full_positions(df):
             # reverse_idxが大きい(7番)ほど「右(+)・上(-)」へ動かす
             move_x = reverse_idx * 22
             pos['x'] += move_x
-            pos['y'] -= move_x * 1.1  # ここをマイナスに修正（8番の右上へ7番を置く）
+            pos['y'] -= move_x * -0.1  # ここをマイナスに修正（8番の右上へ7番を置く）
 
         # --- リミッター適用 ---
         final_x = max(X_LIMIT[0], min(X_LIMIT[1], pos['x']))
