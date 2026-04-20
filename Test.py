@@ -4,17 +4,19 @@ import pandas as pd
 import visualizer
 
 # ==========================================
-# 1. 環境設定と定数定義
+# 1. 環境設定
 # ==========================================
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# ターゲット（1〜2コーナー間のイン）
+# ターゲット（イン）
 TARGET_X = 650
 TARGET_Y = 265
 
-# 芝生侵入禁止ライン
-INNER_BOUNDARY_TOP = 140
-INNER_BOUNDARY_BOTTOM = 390
+# コーナー（円として扱う）
+CORNER_CENTER_X = 650
+CORNER_CENTER_Y = 265
+CORNER_RADIUS_INNER = 125   # 芝生外周
+CORNER_RADIUS_OUTER = 200   # 外側壁
 
 # ハンデ位置
 HANDE_CONFIG = {
@@ -25,13 +27,34 @@ HANDE_CONFIG = {
 }
 
 # ==========================================
-# 2. シミュレーション（侵入前防止版）
+# 2. 円拘束関数（これが核心）
+# ==========================================
+def project_to_corner(nx, ny):
+    dx = nx - CORNER_CENTER_X
+    dy = ny - CORNER_CENTER_Y
+    r = math.hypot(dx, dy)
+
+    # 半径制限
+    if r < CORNER_RADIUS_INNER:
+        r = CORNER_RADIUS_INNER
+    if r > CORNER_RADIUS_OUTER:
+        r = CORNER_RADIUS_OUTER
+
+    angle = math.atan2(dy, dx)
+
+    nx = CORNER_CENTER_X + r * math.cos(angle)
+    ny = CORNER_CENTER_Y + r * math.sin(angle)
+
+    return nx, ny
+
+
+# ==========================================
+# 3. シミュレーション
 # ==========================================
 def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
 
     cars = []
 
-    # 初期化
     for _, row in df.iterrows():
         handy = int(row['ハンデ'])
         config = HANDE_CONFIG[(handy // 10) * 10]
@@ -41,7 +64,6 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
             'x': float(config['x']),
             'y': float(config['y']),
             'theta': 0.0,
-            'sy': float(config['y']),
             'arrived': False
         })
 
@@ -49,83 +71,44 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
         frame = []
 
         for c in cars:
+            x, y, theta = c['x'], c['y'], c['theta']
+
             if c['arrived']:
                 frame.append({
                     'car': c['car'],
-                    'x': int(c['x']),
-                    'y': int(c['y'])
+                    'x': int(x),
+                    'y': int(y)
                 })
                 continue
-
-            x, y, theta = c['x'], c['y'], c['theta']
 
             # =========================
             # 目標方向
             # =========================
             target_angle = math.atan2(TARGET_Y - y, TARGET_X - x)
+
             dtheta = target_angle - theta
             dtheta = (dtheta + math.pi) % (2 * math.pi) - math.pi
-
-            # 旋回制限
             dtheta = max(-omega_max, min(omega_max, dtheta))
             theta += dtheta
 
             # =========================
-            # 次の候補位置
+            # 移動
             # =========================
             nx = x + speed * math.cos(theta)
             ny = y + speed * math.sin(theta)
 
-            prev_y = y
-
             # =========================
-            # 外に膨らまない制約
+            # コーナー拘束（超重要）
             # =========================
-            if c['sy'] > 265:
-                ny = min(ny, c['sy'])
-            else:
-                ny = max(ny, c['sy'])
-
-            # =========================
-            # 芝生侵入「事前防止」
-            # =========================
-            if c['sy'] > 265:
-                # 下側
-                if nx < 600:
-                    # ライン跨ぎ検出
-                    if prev_y <= INNER_BOUNDARY_BOTTOM and ny > INNER_BOUNDARY_BOTTOM:
-                        ny = INNER_BOUNDARY_BOTTOM
-                        theta = -abs(theta)
-
-                    # 念のためのクランプ
-                    if ny > INNER_BOUNDARY_BOTTOM:
-                        ny = INNER_BOUNDARY_BOTTOM
-                        theta = -abs(theta)
-
-            else:
-                # 上側
-                if nx < 600:
-                    if prev_y >= INNER_BOUNDARY_TOP and ny < INNER_BOUNDARY_TOP:
-                        ny = INNER_BOUNDARY_TOP
-                        theta = abs(theta)
-
-                    if ny < INNER_BOUNDARY_TOP:
-                        ny = INNER_BOUNDARY_TOP
-                        theta = abs(theta)
-
-            # =========================
-            # 最終安全クランプ
-            # =========================
-            ny = min(max(ny, INNER_BOUNDARY_TOP), INNER_BOUNDARY_BOTTOM)
+            if nx < CORNER_CENTER_X:
+                nx, ny = project_to_corner(nx, ny)
 
             # =========================
             # 到達判定
             # =========================
-            dist = math.hypot(TARGET_X - nx, TARGET_Y - ny)
-            if dist < 8:
+            if math.hypot(TARGET_X - nx, TARGET_Y - ny) < 8:
                 c['arrived'] = True
 
-            # 更新
             c['x'], c['y'], c['theta'] = nx, ny, theta
 
             frame.append({
@@ -135,7 +118,7 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
             })
 
         # =========================
-        # 誰か1人でも到達した瞬間
+        # 誰か到達した瞬間で止める
         # =========================
         if any(c['arrived'] for c in cars):
             return frame
@@ -144,7 +127,7 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
 
 
 # ==========================================
-# 3. 実行
+# 4. 実行
 # ==========================================
 def run_simulation_and_send(df):
     try:
@@ -153,14 +136,14 @@ def run_simulation_and_send(df):
         img_path = visualizer.create_prediction_image(positions)
         if img_path:
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print("芝生侵入なしで送信完了")
+            print("円拘束で芝生侵入なし送信完了")
 
     except Exception as e:
         print(f"エラー: {e}")
 
 
 # ==========================================
-# 4. テスト
+# 5. テスト
 # ==========================================
 if __name__ == "__main__":
     handicaps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
