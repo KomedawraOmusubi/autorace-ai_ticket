@@ -12,15 +12,15 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 HANDE_CONFIG = {
     0:   {'x': 175, 'y': 400, 'angle': 0.0,  'spacing': 10}, 
     10:  {'x': 120, 'y': 380, 'angle': -0.7, 'spacing': 10},  
-    20:  {'x': 87,  'y': 352, 'angle': -0.5, 'spacing': 10}, 
+    20:  {'x': 87,  'y': 354, 'angle': -0.5, 'spacing': 10}, 
     30:  {'x': 65,  'y': 323, 'angle': -0.4, 'spacing': 10}, 
     40:  {'x': 45,  'y': 285, 'angle': -0.25, 'spacing': 10}, 
     50:  {'x': 35,  'y': 245, 'angle':-0.1, 'spacing': 10}, 
-    60:  {'x': 35,  'y': 199, 'angle': 0.07,  'spacing': 10},  
+    60:  {'x': 35,  'y': 199,,  'spacing': 10},  
     70:  {'x': 50,  'y': 165, 'angle': 0.32,  'spacing': 12}, 
-    80:  {'x': 70,  'y': 125, 'angle': 0.42,  'spacing': 11}, # xを少し右へ
-    90:  {'x': 95, 'y': 95,  'angle': 0.6,  'spacing': 10}, # xを少し右へ
-    100: {'x': 125, 'y': 68,  'angle': 0.7 ,  'spacing': 10},  # xを少し右へ
+    80:  {'x': 68,  'y': 125, 'angle': 0.42,  'spacing': 11}, # xを少し右へ
+    90:  {'x': 93, 'y': 93,  'angle': 0.6,  'spacing': 10}, # xを少し右へ
+    100: {'x': 123, 'y': 66,  'angle': 0.7 ,  'spacing': 10},  # xを少し右へ
 }
 
 X_LIMIT = (15, 380)  
