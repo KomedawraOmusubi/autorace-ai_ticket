@@ -10,9 +10,9 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 # ハンデごとの【基準座標】と【配置角度】
 # 1000029459.png をベースに微調整
 HANDE_CONFIG = {
-    0:   {'x': 170, 'y': 400, 'angle': 0.0},   
-    10:  {'x': 120, 'y': 370, 'angle': -1.2},  
-    20:  {'x': 90,  'y': 345, 'angle': -1.2}, 
+    0:   {'x': 180, 'y': 400, 'angle': 0.0},   
+    10:  {'x': 120, 'y': 380, 'angle': -1.1},  
+    20:  {'x': 90,  'y': 355, 'angle': -1.2}, 
     30:  {'x': 65,  'y': 315, 'angle': -0.6}, 
     40:  {'x': 40,  'y': 280, 'angle': -0.3}, 
     50:  {'x': 25,  'y': 240, 'angle': -0.2}, 
@@ -50,7 +50,7 @@ def calculate_full_positions(df):
 
         # --- 間隔の調整 ---
         # spacingを11に縮小し、車番同士を密着
-        spacing = 11 
+        spacing = 9 
         offset = (idx - (num_cars - 1) / 2) * spacing
         
         if config['angle'] == 0:
