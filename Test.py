@@ -28,10 +28,6 @@ HANDE_CONFIG = {
 # 2. シミュレーション（旋回制限モデル）
 # ==========================================
 def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
-    """
-    speed: 移動速度
-    omega_max: 1ステップあたり最大旋回量（ラジアン）
-    """
 
     cars = []
 
@@ -40,24 +36,25 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
         handy = int(row['ハンデ'])
         config = HANDE_CONFIG[(handy // 10) * 10]
 
-        # 初期向き（右方向ベース）
-        theta = 0.0
-
         cars.append({
             'car': int(row['車']),
             'x': float(config['x']),
             'y': float(config['y']),
-            'theta': theta,
-            'sy': float(config['y']),  # 初期Y（膨らみ防止）
+            'theta': 0.0,
+            'sy': float(config['y']),
             'arrived': False
         })
 
-    for step in range(steps):
+    for step in range(int(steps)):  # ★ int化
         frame = []
 
         for c in cars:
             if c['arrived']:
-                frame.append(c.copy())
+                frame.append({
+                    'car': c['car'],
+                    'x': int(c['x']),
+                    'y': int(c['y'])
+                })
                 continue
 
             x, y, theta = c['x'], c['y'], c['theta']
@@ -93,11 +90,11 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
             # =========================
             if ny > INNER_BOUNDARY_BOTTOM:
                 ny = INNER_BOUNDARY_BOTTOM
-                theta = -abs(theta)  # 上向きへ
+                theta = -abs(theta)
 
             if ny < INNER_BOUNDARY_TOP:
                 ny = INNER_BOUNDARY_TOP
-                theta = abs(theta)   # 下向きへ
+                theta = abs(theta)
 
             # =========================
             # 到達判定
@@ -108,7 +105,13 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
 
             # 更新
             c['x'], c['y'], c['theta'] = nx, ny, theta
-            frame.append(c.copy())
+
+            # ★ int化（ここ重要）
+            frame.append({
+                'car': c['car'],
+                'x': int(nx),
+                'y': int(ny)
+            })
 
         # =========================
         # 誰か1人でも到達した瞬間
