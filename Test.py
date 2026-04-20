@@ -31,34 +31,27 @@ X_LIMIT = (15, 780)
 Y_LIMIT = (20, 480) 
 
 # ==========================================
-# 2. 移動シミュレーション・座標計算ロジック（同時刻停止型）
+# 2. 座標計算ロジック
 # ==========================================
 def calculate_natural_positions(df):
-    """
-    全車を一律の短い時間分だけターゲットへ移動させる
-    """
     df = df.sort_values(['ハンデ', '車'])
-    results = []
+    final_results = []  # ここで初期化
     
-    # 1. まず各車のスタート位置とターゲットまでの距離を算出
     handy_groups = df.groupby('ハンデ')['車'].apply(list).to_dict()
     processed_count = {h: 0 for h in handy_groups.keys()}
 
-    # --- 基準距離の設定（ここを通過した瞬間を撮る） ---
-    # 最もターゲットに近い0m選手からターゲットまでの距離の2/3を、全員の移動距離の上限とする
-    # (全員を移動させすぎないための修正)
-    zero_dist = math.sqrt((TARGET_X - HANDE_CONFIG[0]['x'])**2 + (TARGET_Y - HANDE_CONFIG[0]['y'])**2)
-    cutoff_dist = zero_dist * 0.7 
+    # 最も近い0m選手がターゲットに到達するまでの距離を基準に、
+    # その100%（到達した瞬間）を全員の移動量とする
+    base_dist = math.sqrt((TARGET_X - HANDE_CONFIG[0]['x'])**2 + (TARGET_Y - HANDE_CONFIG[0]['y'])**2)
 
     for _, row in df.iterrows():
-        car = int(row['車'])
+        car = int(row['car'] if 'car' in row else row['車'])
         handy = int(row.get('ハンデ', 0))
-        trial_time = float(row.get('試走', 3.30)) # 同一タイム
 
         base_h = min(max(0, (handy // 10) * 10), 100)
         config = HANDE_CONFIG[base_h]
         
-        # スタート時の配置角度と、ターゲットへのベクトル
+        # スタート時の配置角度
         dx = TARGET_X - config['x']
         dy = TARGET_Y - config['y']
         angle_to_target = math.atan2(dy, dx)
@@ -70,25 +63,24 @@ def calculate_natural_positions(df):
         spacing = config.get('spacing', 11)
         offset = (idx - (num_cars - 1) / 2) * spacing
         
-        # 各車の初期座標 (sx, sy)
+        # 初期座標
         sx = config['x'] + offset * math.cos(line_angle)
         sy = config['y'] + offset * math.sin(line_angle)
         
-        # ターゲットまでの直線距離
+        # ターゲットまでの距離
         dist_to_target = math.sqrt((TARGET_X - sx)**2 + (TARGET_Y - sy)**2)
         
-        # --- 移動量の決定 ---
-        # 試走タイムが同じなので、全員同じ距離だけ進める（または到達距離）
-        actual_move_dist = min(dist_to_target, cutoff_dist)
+        # 全員「base_dist」分だけ進む（ただしターゲットは超えない）
+        actual_move_dist = min(dist_to_target, base_dist)
         
-        # 比率に変換して移動後の座標を求める
-        ratio = actual_move_dist / dist_to_target
+        # 移動比率
+        ratio = actual_move_dist / dist_to_target if dist_to_target > 0 else 1.0
         
         curr_x = sx + (TARGET_X - sx) * ratio
         curr_y = sy + (TARGET_Y - sy) * ratio
         
         final_results.append({
-            'car': p['car'],
+            'car': car,
             'x': int(max(X_LIMIT[0], min(X_LIMIT[1], curr_x))),
             'y': int(max(Y_LIMIT[0], min(Y_LIMIT[1], curr_y)))
         })
@@ -104,17 +96,14 @@ def run_simulation_and_send(df):
             print("エラー: Discord Webhook URLを設定してください。")
             return
 
-        # 「同時刻時点」の自然な座標を計算
         positions = calculate_natural_positions(df)
-        
         img_path = visualizer.create_prediction_image(positions)
         
         if img_path:
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print("ハンデを考慮した自然なスタート直後の画像を送信しました。")
+            print("0mがインに到達した瞬間の画像を送信しました。")
         else:
             print("画像生成失敗")
-
     except Exception as e:
         print(f"エラー: {e}")
 
@@ -124,12 +113,11 @@ def run_simulation_and_send(df):
 if __name__ == "__main__":
     handicaps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     test_data = []
-    
     for i, h in enumerate(handicaps):
         test_data.append({
             '車': (i % 8) + 1,
             'ハンデ': h,
-            '試走': 3.30  # 全員同じタイム
+            '試走': 3.30
         })
 
     df_test = pd.DataFrame(test_data)
