@@ -12,16 +12,16 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 # spacing: そのハンデライン上での車番同士の距離。多車（5台など）の場合は少し詰め気味に設定。
 HANDE_CONFIG = {
     0:   {'x': 175, 'y': 400, 'angle': 0.0,  'spacing': 12}, # 垂直は少し余裕を持たせる
-    10:  {'x': 120, 'y': 380, 'angle': -1.0, 'spacing': 9},  # カーブ区間はタイトに
-    20:  {'x': 90,  'y': 355, 'angle': -0.9, 'spacing': 9}, 
-    30:  {'x': 60,  'y': 323, 'angle': -0.8, 'spacing': 10}, 
+    10:  {'x': 120, 'y': 380, 'angle': -0.8, 'spacing': 9},  # カーブ区間はタイトに
+    20:  {'x': 90,  'y': 355, 'angle': -0.6, 'spacing': 9}, 
+    30:  {'x': 60,  'y': 323, 'angle': -0.5, 'spacing': 10}, 
     40:  {'x': 40,  'y': 285, 'angle': -0.2, 'spacing': 13}, 
     50:  {'x': 25,  'y': 245, 'angle': -0.2, 'spacing': 13}, 
-    60:  {'x': 25,  'y': 199, 'angle': 0.1, 'spacing': 11},  
-    70:  {'x': 50,  'y': 161, 'angle': 0.3,  'spacing': 10}, 
-    80:  {'x': 63,  'y': 118, 'angle': 0.5,  'spacing': 10}, 
+    60:  {'x': 25,  'y': 199, 'angle': 0.1, 'spacing': 13},  
+    70:  {'x': 50,  'y': 161, 'angle': 0.3,  'spacing': 13}, 
+    80:  {'x': 63,  'y': 118, 'angle': 0.5,  'spacing': 13}, 
     90:  {'x': 87,  'y': 82,  'angle': 0.8,  'spacing': 9}, 
-    100: {'x': 120, 'y': 50,  'angle': 0.9,  'spacing': 9},  
+    100: {'x': 120, 'y': 50,  'angle': 0.9,  'spacing': 8},  
 }
 
 X_LIMIT = (15, 380)  
