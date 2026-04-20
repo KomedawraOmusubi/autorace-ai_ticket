@@ -8,7 +8,7 @@ import visualizer
 # ==========================================
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# ターゲット座標：画像右側、白線のイン角
+# ターゲット座標（イン角）
 TARGET_X = 650
 TARGET_Y = 265
 
@@ -31,28 +31,34 @@ X_LIMIT = (15, 780)
 Y_LIMIT = (20, 480) 
 
 # ==========================================
-# 2. 移動シミュレーション・座標計算ロジック
+# 2. 移動シミュレーション・座標計算ロジック（同時刻停止型）
 # ==========================================
-def calculate_reaching_positions(df):
+def calculate_natural_positions(df):
     """
-    誰かがターゲットに到達した瞬間の全車の位置を計算する
+    全車を一律の短い時間分だけターゲットへ移動させる
     """
     df = df.sort_values(['ハンデ', '車'])
-    temp_positions = []
+    results = []
     
     # 1. まず各車のスタート位置とターゲットまでの距離を算出
     handy_groups = df.groupby('ハンデ')['車'].apply(list).to_dict()
     processed_count = {h: 0 for h in handy_groups.keys()}
 
+    # --- 基準距離の設定（ここを通過した瞬間を撮る） ---
+    # 最もターゲットに近い0m選手からターゲットまでの距離の2/3を、全員の移動距離の上限とする
+    # (全員を移動させすぎないための修正)
+    zero_dist = math.sqrt((TARGET_X - HANDE_CONFIG[0]['x'])**2 + (TARGET_Y - HANDE_CONFIG[0]['y'])**2)
+    cutoff_dist = zero_dist * 0.7 
+
     for _, row in df.iterrows():
         car = int(row['車'])
         handy = int(row.get('ハンデ', 0))
-        trial_time = float(row.get('試走', 3.30))
-        
+        trial_time = float(row.get('試走', 3.30)) # 同一タイム
+
         base_h = min(max(0, (handy // 10) * 10), 100)
         config = HANDE_CONFIG[base_h]
         
-        # スタート時の配置角度を計算
+        # スタート時の配置角度と、ターゲットへのベクトル
         dx = TARGET_X - config['x']
         dy = TARGET_Y - config['y']
         angle_to_target = math.atan2(dy, dx)
@@ -68,29 +74,18 @@ def calculate_reaching_positions(df):
         sx = config['x'] + offset * math.cos(line_angle)
         sy = config['y'] + offset * math.sin(line_angle)
         
-        # ターゲットまでの距離と必要時間（時間 = 距離 * 試走タイム ※簡易係数）
+        # ターゲットまでの直線距離
         dist_to_target = math.sqrt((TARGET_X - sx)**2 + (TARGET_Y - sy)**2)
-        time_needed = dist_to_target * trial_time
         
-        temp_positions.append({
-            'car': car,
-            'sx': sx, 'sy': sy,
-            'angle': angle_to_target,
-            'dist': dist_to_target,
-            'time_needed': time_needed
-        })
-
-    # 2. 最も早く到達する車の時間を特定
-    min_time = min(p['time_needed'] for p in temp_positions)
-    
-    # 3. その時間経過時点での全車の位置を決定
-    final_results = []
-    for p in temp_positions:
-        # 進んだ比率 (最速の車は ratio=1.0 になる)
-        ratio = min_time / p['time_needed']
+        # --- 移動量の決定 ---
+        # 試走タイムが同じなので、全員同じ距離だけ進める（または到達距離）
+        actual_move_dist = min(dist_to_target, cutoff_dist)
         
-        curr_x = p['sx'] + (TARGET_X - p['sx']) * ratio
-        curr_y = p['sy'] + (TARGET_Y - p['sy']) * ratio
+        # 比率に変換して移動後の座標を求める
+        ratio = actual_move_dist / dist_to_target
+        
+        curr_x = sx + (TARGET_X - sx) * ratio
+        curr_y = sy + (TARGET_Y - sy) * ratio
         
         final_results.append({
             'car': p['car'],
@@ -109,14 +104,14 @@ def run_simulation_and_send(df):
             print("エラー: Discord Webhook URLを設定してください。")
             return
 
-        # 「到達時点」の座標を計算
-        positions = calculate_reaching_positions(df)
+        # 「同時刻時点」の自然な座標を計算
+        positions = calculate_natural_positions(df)
         
         img_path = visualizer.create_prediction_image(positions)
         
         if img_path:
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print("誰かがインに到達した瞬間の画像を送信しました。")
+            print("ハンデを考慮した自然なスタート直後の画像を送信しました。")
         else:
             print("画像生成失敗")
 
