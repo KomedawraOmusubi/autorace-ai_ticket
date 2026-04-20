@@ -11,7 +11,7 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 # ハンデライン（画像上の各白線の基準中心座標）
 # ※画像の位置に合わせて数値を微調整してください
 HANDE_LINE_COORDS = {
-    0:  {'x': 150, 'y': 380}, 
+    0:  {'x': 160, 'y': 380}, 
     10: {'x': 115, 'y': 365}, 
     20: {'x': 85,  'y': 335}, 
     30: {'x': 60,  'y': 305}, 
@@ -48,7 +48,7 @@ def calculate_full_positions(df):
             # 【通常ハンデ】センター振り分け（内が若番、外が老番）
             shift = ((num_cars - 1) / 2 - idx) * 20 
             pos['x'] += shift
-            pos['y'] -= shift * 0.4
+            pos['y'] -= shift * 0.8
         else:
             # 【50m以降】8番が最外(左)、7番が内(右)
             reverse_idx = (num_cars - 1) - idx
