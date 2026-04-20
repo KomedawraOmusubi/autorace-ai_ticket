@@ -7,20 +7,21 @@ import visualizer
 # ==========================================
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# ハンデごとの【基準座標】と【配置角度】
-# 1000029459.png をベースに微調整
+# ハンデごとの【基準座標】【配置角度】【間隔】を個別に定義
+# angle: 0.0は垂直。マイナスは右上(イン)-左下(アウト)。
+# spacing: そのハンデライン上での車番同士の距離。多車（5台など）の場合は少し詰め気味に設定。
 HANDE_CONFIG = {
-    0:   {'x': 175, 'y': 400, 'angle': 0.0},   
-    10:  {'x': 120, 'y': 380, 'angle': -1.1},  
-    20:  {'x': 90,  'y': 355, 'angle': -1.2}, 
-    30:  {'x': 60,  'y': 323, 'angle': -0.4}, 
-    40:  {'x': 40,  'y': 285, 'angle': -0.2}, 
-    50:  {'x': 25,  'y': 245, 'angle': -0.2}, 
-    60:  {'x': 25,  'y': 199, 'angle': -0.4},  
-    70:  {'x': 50,  'y': 161, 'angle': 0.3 }, 
-    80:  {'x': 63,  'y': 118, 'angle': 0.5}, 
-    90:  {'x': 87,  'y': 82,  'angle': 0.8}, 
-    100: {'x': 120, 'y': 50,  'angle': 0.9},  
+    0:   {'x': 175, 'y': 400, 'angle': 0.0,  'spacing': 16}, # 垂直は少し余裕を持たせる
+    10:  {'x': 120, 'y': 380, 'angle': -1.1, 'spacing': 9},  # カーブ区間はタイトに
+    20:  {'x': 90,  'y': 355, 'angle': -1.2, 'spacing': 9}, 
+    30:  {'x': 60,  'y': 323, 'angle': -0.4, 'spacing': 10}, 
+    40:  {'x': 40,  'y': 285, 'angle': -0.2, 'spacing': 11}, 
+    50:  {'x': 25,  'y': 245, 'angle': -0.2, 'spacing': 11}, 
+    60:  {'x': 25,  'y': 199, 'angle': -0.4, 'spacing': 11},  
+    70:  {'x': 50,  'y': 161, 'angle': 0.3,  'spacing': 10}, 
+    80:  {'x': 63,  'y': 118, 'angle': 0.5,  'spacing': 10}, 
+    90:  {'x': 87,  'y': 82,  'angle': 0.8,  'spacing': 9}, 
+    100: {'x': 120, 'y': 50,  'angle': 0.9,  'spacing': 9},  
 }
 
 X_LIMIT = (15, 380)  
@@ -30,7 +31,7 @@ Y_LIMIT = (30, 460)
 # 2. 座標計算ロジック
 # ==========================================
 def calculate_full_positions(df):
-    # ハンデ順、次に車番順でソート
+    # 並び順を安定させる（ハンデ内は車番昇順）
     df = df.sort_values(['ハンデ', '車'])
     results = []
     
@@ -49,19 +50,17 @@ def calculate_full_positions(df):
         processed_count[handy] += 1
 
         # --- 間隔の調整 ---
-        # spacingを11に縮小し、車番同士を密着
-        spacing = 9 
+        spacing = config.get('spacing', 10)
         offset = (idx - (num_cars - 1) / 2) * spacing
         
         if config['angle'] == 0:
-            # 0m地点（垂直）：xは固定、y方向にのみ配置
+            # 【0m：垂直配置】
             target_x = config['x']
             target_y = config['y'] + offset 
         else:
-            # 10-100m地点（角度あり）
-            # 斜めのライン上で横（X）に離れすぎないよう、Xの移動量をさらに抑制(0.7倍)
-            # これにより「縦に重なりつつ、少しだけ横にずれる」密集感を出します
-            target_x = config['x'] - (offset * 0.7)
+            # 【10-100m：角度あり配置】
+            # 斜めの時、X方向に広がりすぎると白線から浮くため、Xの移動をさらに抑制(0.6倍)
+            target_x = config['x'] - (offset * 0.6)
             target_y = config['y'] - (offset * config['angle'])
 
         results.append({
@@ -85,7 +84,7 @@ def run_prediction_and_send(df):
         
         if img_path:
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print("横の間隔を詰めた全ハンデ配置図を送信しました。")
+            print(f"全ハンデ5台配置テスト（計{len(df)}台）を送信しました。")
         else:
             print("画像生成失敗")
 
@@ -93,11 +92,11 @@ def run_prediction_and_send(df):
         print(f"エラー: {e}")
 
 # ==========================================
-# 4. テスト実行（全ハンデに不規則な台数を配置）
+# 4. テスト実行（各ハンデに5台ずつ配置）
 # ==========================================
 if __name__ == "__main__":
-    # パターン：3車, 2車, 1車, 4車 の繰り返し
     test_data = []
+    # 全ハンデに一律5台配置して密度を確認
     patterns = [5]
     handicaps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     
