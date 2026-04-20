@@ -15,8 +15,8 @@ HANDE_CONFIG = {
     10:  {'x': 120, 'y': 380, 'angle': -0.8, 'spacing': 9},  # カーブ区間はタイトに
     20:  {'x': 90,  'y': 355, 'angle': -0.6, 'spacing': 9}, 
     30:  {'x': 60,  'y': 323, 'angle': -0.3, 'spacing': 10}, 
-    40:  {'x': 40,  'y': 285, 'angle': -0.01, 'spacing': 13}, 
-    50:  {'x': 25,  'y': 245, 'angle': 0.01, 'spacing': 13}, 
+    40:  {'x': 40,  'y': 285, 'angle': -0.1, 'spacing': 13}, 
+    50:  {'x': 25,  'y': 245, 'angle':-0.05, 'spacing': 13}, 
     60:  {'x': 25,  'y': 199, 'angle': 0.1, 'spacing': 13},  
     70:  {'x': 50,  'y': 161, 'angle': 0.2,  'spacing': 13}, 
     80:  {'x': 63,  'y': 118, 'angle': 0.4,  'spacing': 13}, 
