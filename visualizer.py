@@ -25,7 +25,7 @@ def create_prediction_image(positions):
             car_icon = Image.open(icon_path).convert('RGBA')
             
             # --- 画像を縮小する処理 ---
-            icon_size = (90, 90)  # 指定のサイズ
+            icon_size = (20, 20)  # 指定のサイズ
             car_icon.thumbnail(icon_size, Image.Resampling.LANCZOS)
             # ------------------------------
             
