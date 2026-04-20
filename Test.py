@@ -98,7 +98,7 @@ def run_prediction_and_send(df):
 if __name__ == "__main__":
     # パターン：3車, 2車, 1車, 4車 の繰り返し
     test_data = []
-    patterns = [3, 2, 1, 4]
+    patterns = [5]
     handicaps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     
     car_cycle = [1, 2, 3, 4, 5, 6, 7, 8]
