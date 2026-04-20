@@ -57,7 +57,7 @@ def calculate_full_positions(df):
             # reverse_idxが大きい(7番)ほど「右(+)・上(-)」へ動かす
             move_x = reverse_idx * 22
             pos['x'] += move_x
-            pos['y'] -= move_x * 1.0  # ここをマイナスに修正（8番の右上へ7番を置く）
+            pos['y'] -= move_x * 1.1  # ここをマイナスに修正（8番の右上へ7番を置く）
 
         # --- リミッター適用 ---
         final_x = max(X_LIMIT[0], min(X_LIMIT[1], pos['x']))
