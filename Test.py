@@ -4,21 +4,18 @@ import pandas as pd
 import visualizer
 
 # ==========================================
-# 1. 環境設定
+# 1. 環境設定と定数定義
 # ==========================================
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# ターゲット（イン）
-TARGET_X = 650
-TARGET_Y = 265
+# 経由地点
+POINT_A = {'x': 175, 'y': 400}  # 0m付近
+POINT_B = {'x': 420, 'y': 400}  # ゴール線付近
+POINT_C = {'x': 650, 'y': 265}  # 最終目標（イン角）
 
-# コーナー（円として扱う）
-CORNER_CENTER_X = 650
-CORNER_CENTER_Y = 265
-CORNER_RADIUS_INNER = 125   # 芝生外周
-CORNER_RADIUS_OUTER = 200   # 外側壁
+# 芝生境界の最小y（下コース: 390, 上コース: 140 と仮定）
+SHIBAFU_LIMIT_Y = 390 
 
-# ハンデ位置
 HANDE_CONFIG = {
     0:   {'x': 175, 'y': 400}, 10:  {'x': 120, 'y': 380}, 20:  {'x': 87,  'y': 354},
     30:  {'x': 65,  'y': 323}, 40:  {'x': 45,  'y': 285}, 50:  {'x': 35,  'y': 245},
@@ -27,127 +24,75 @@ HANDE_CONFIG = {
 }
 
 # ==========================================
-# 2. 円拘束関数（これが核心）
+# 2. B-C間ガード付き移動ロジック
 # ==========================================
-def project_to_corner(nx, ny):
-    dx = nx - CORNER_CENTER_X
-    dy = ny - CORNER_CENTER_Y
-    r = math.hypot(dx, dy)
-
-    # 半径制限
-    if r < CORNER_RADIUS_INNER:
-        r = CORNER_RADIUS_INNER
-    if r > CORNER_RADIUS_OUTER:
-        r = CORNER_RADIUS_OUTER
-
-    angle = math.atan2(dy, dx)
-
-    nx = CORNER_CENTER_X + r * math.cos(angle)
-    ny = CORNER_CENTER_Y + r * math.sin(angle)
-
-    return nx, ny
-
-
-# ==========================================
-# 3. シミュレーション
-# ==========================================
-def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
-
-    cars = []
+def calculate_secure_abc_path(df):
+    df = df.sort_values(['ハンデ', '車'])
+    final_results = []
+    
+    # 0m選手がA-B-Cを完走する距離
+    dist_ab = math.sqrt((POINT_B['x'] - POINT_A['x'])**2 + (POINT_B['y'] - POINT_A['y'])**2)
+    dist_bc = math.sqrt((POINT_C['x'] - POINT_B['x'])**2 + (POINT_C['y'] - POINT_B['y'])**2)
+    total_allowed_dist = dist_ab + dist_bc
 
     for _, row in df.iterrows():
-        handy = int(row['ハンデ'])
-        config = HANDE_CONFIG[(handy // 10) * 10]
+        car = int(row['車'])
+        handy = int(row.get('ハンデ', 0))
+        config = HANDE_CONFIG[min(max(0, (handy // 10) * 10), 100)]
+        
+        curr_x, curr_y = config['x'], config['y']
+        move_left = total_allowed_dist
 
-        cars.append({
-            'car': int(row['車']),
-            'x': float(config['x']),
-            'y': float(config['y']),
-            'theta': 0.0,
-            'arrived': False
-        })
+        # ステップ1: A地点へ
+        d = math.sqrt((POINT_A['x'] - curr_x)**2 + (POINT_A['y'] - curr_y)**2)
+        if move_left > 0 and d > 0:
+            m = min(move_left, d)
+            curr_x += (POINT_A['x'] - curr_x) * (m/d)
+            curr_y += (POINT_A['y'] - curr_y) * (m/d)
+            move_left -= m
 
-    for step in range(int(steps)):
-        frame = []
+        # ステップ2: B地点へ
+        d = math.sqrt((POINT_B['x'] - curr_x)**2 + (POINT_B['y'] - curr_y)**2)
+        if move_left > 0 and d > 0:
+            m = min(move_left, d)
+            curr_x += (POINT_B['x'] - curr_x) * (m/d)
+            curr_y += (POINT_B['y'] - curr_y) * (m/d)
+            move_left -= m
 
-        for c in cars:
-            x, y, theta = c['x'], c['y'], c['theta']
+        # ステップ3: C地点へ (ここで芝生侵入をガード)
+        d = math.sqrt((POINT_C['x'] - curr_x)**2 + (POINT_C['y'] - curr_y)**2)
+        if move_left > 0 and d > 0:
+            m = min(move_left, d)
+            progress = m / d
+            # 基本の移動先
+            next_x = curr_x + (POINT_C['x'] - curr_x) * progress
+            next_y = curr_y + (POINT_C['y'] - curr_y) * progress
+            
+            # C地点手前での芝生侵入防止:
+            # xがターゲット(650)に近づくほどyを絞るが、道中ではSHIBAFU_LIMITより外を維持
+            if next_x < 600:
+                if curr_y > 265: # 下から来る車
+                    next_y = max(next_y, SHIBAFU_LIMIT_Y)
+                else: # 上から来る車
+                    next_y = min(next_y, 140)
+            
+            curr_x, curr_y = next_x, next_y
 
-            if c['arrived']:
-                frame.append({
-                    'car': c['car'],
-                    'x': int(x),
-                    'y': int(y)
-                })
-                continue
+        final_results.append({'car': car, 'x': int(curr_x), 'y': int(curr_y)})
+        
+    return final_results
 
-            # =========================
-            # 目標方向
-            # =========================
-            target_angle = math.atan2(TARGET_Y - y, TARGET_X - x)
-
-            dtheta = target_angle - theta
-            dtheta = (dtheta + math.pi) % (2 * math.pi) - math.pi
-            dtheta = max(-omega_max, min(omega_max, dtheta))
-            theta += dtheta
-
-            # =========================
-            # 移動
-            # =========================
-            nx = x + speed * math.cos(theta)
-            ny = y + speed * math.sin(theta)
-
-            # =========================
-            # コーナー拘束（超重要）
-            # =========================
-            if nx < CORNER_CENTER_X:
-                nx, ny = project_to_corner(nx, ny)
-
-            # =========================
-            # 到達判定
-            # =========================
-            if math.hypot(TARGET_X - nx, TARGET_Y - ny) < 8:
-                c['arrived'] = True
-
-            c['x'], c['y'], c['theta'] = nx, ny, theta
-
-            frame.append({
-                'car': c['car'],
-                'x': int(nx),
-                'y': int(ny)
-            })
-
-        # =========================
-        # 誰か到達した瞬間で止める
-        # =========================
-        if any(c['arrived'] for c in cars):
-            return frame
-
-    return frame
-
-
-# ==========================================
-# 4. 実行
-# ==========================================
 def run_simulation_and_send(df):
     try:
-        positions = simulate_motion(df)
-
+        positions = calculate_secure_abc_path(df)
         img_path = visualizer.create_prediction_image(positions)
         if img_path:
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print("円拘束で芝生侵入なし送信完了")
-
+            print("C地点手前の芝生ガードを強化して送信しました。")
     except Exception as e:
         print(f"エラー: {e}")
 
-
-# ==========================================
-# 5. テスト
-# ==========================================
 if __name__ == "__main__":
     handicaps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     test_data = [{'車': (i % 8) + 1, 'ハンデ': h} for i, h in enumerate(handicaps)]
-
-    df = pd.DataFrame(test_data)
-    run_simulation_and_send(df)
+    run_simulation_and_send(pd.DataFrame(test_data))
