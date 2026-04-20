@@ -25,7 +25,7 @@ HANDE_CONFIG = {
 }
 
 # ==========================================
-# 2. シミュレーション（旋回制限モデル）
+# 2. シミュレーション（侵入前防止版）
 # ==========================================
 def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
 
@@ -45,7 +45,7 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
             'arrived': False
         })
 
-    for step in range(int(steps)):  # ★ int化
+    for step in range(int(steps)):
         frame = []
 
         for c in cars:
@@ -63,7 +63,6 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
             # 目標方向
             # =========================
             target_angle = math.atan2(TARGET_Y - y, TARGET_X - x)
-
             dtheta = target_angle - theta
             dtheta = (dtheta + math.pi) % (2 * math.pi) - math.pi
 
@@ -72,10 +71,12 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
             theta += dtheta
 
             # =========================
-            # 移動
+            # 次の候補位置
             # =========================
             nx = x + speed * math.cos(theta)
             ny = y + speed * math.sin(theta)
+
+            prev_y = y
 
             # =========================
             # 外に膨らまない制約
@@ -86,15 +87,36 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
                 ny = max(ny, c['sy'])
 
             # =========================
-            # 芝生侵入禁止（方向補正）
+            # 芝生侵入「事前防止」
             # =========================
-            if ny > INNER_BOUNDARY_BOTTOM:
-                ny = INNER_BOUNDARY_BOTTOM
-                theta = -abs(theta)
+            if c['sy'] > 265:
+                # 下側
+                if nx < 600:
+                    # ライン跨ぎ検出
+                    if prev_y <= INNER_BOUNDARY_BOTTOM and ny > INNER_BOUNDARY_BOTTOM:
+                        ny = INNER_BOUNDARY_BOTTOM
+                        theta = -abs(theta)
 
-            if ny < INNER_BOUNDARY_TOP:
-                ny = INNER_BOUNDARY_TOP
-                theta = abs(theta)
+                    # 念のためのクランプ
+                    if ny > INNER_BOUNDARY_BOTTOM:
+                        ny = INNER_BOUNDARY_BOTTOM
+                        theta = -abs(theta)
+
+            else:
+                # 上側
+                if nx < 600:
+                    if prev_y >= INNER_BOUNDARY_TOP and ny < INNER_BOUNDARY_TOP:
+                        ny = INNER_BOUNDARY_TOP
+                        theta = abs(theta)
+
+                    if ny < INNER_BOUNDARY_TOP:
+                        ny = INNER_BOUNDARY_TOP
+                        theta = abs(theta)
+
+            # =========================
+            # 最終安全クランプ
+            # =========================
+            ny = min(max(ny, INNER_BOUNDARY_TOP), INNER_BOUNDARY_BOTTOM)
 
             # =========================
             # 到達判定
@@ -106,7 +128,6 @@ def simulate_motion(df, steps=150, speed=6.0, omega_max=0.08):
             # 更新
             c['x'], c['y'], c['theta'] = nx, ny, theta
 
-            # ★ int化（ここ重要）
             frame.append({
                 'car': c['car'],
                 'x': int(nx),
@@ -132,14 +153,14 @@ def run_simulation_and_send(df):
         img_path = visualizer.create_prediction_image(positions)
         if img_path:
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print("最初にイン到達した瞬間を送信しました")
+            print("芝生侵入なしで送信完了")
 
     except Exception as e:
         print(f"エラー: {e}")
 
 
 # ==========================================
-# 4. テスト実行
+# 4. テスト
 # ==========================================
 if __name__ == "__main__":
     handicaps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
