@@ -16,7 +16,7 @@ HANDE_CONFIG = {
     30:  {'x': 65,  'y': 323, 'angle': -0.4, 'spacing': 10}, 
     40:  {'x': 45,  'y': 285, 'angle': -0.25, 'spacing': 10}, 
     50:  {'x': 35,  'y': 245, 'angle':-0.1, 'spacing': 10}, 
-    60:  {'x': 35,  'y': 199,  'spacing': 10},  
+    60:  {'x': 38,  'y': 195, 'angle':0.05, 'spacing': 10},  
     70:  {'x': 50,  'y': 165, 'angle': 0.32,  'spacing': 12}, 
     80:  {'x': 68,  'y': 125, 'angle': 0.42,  'spacing': 11}, # xを少し右へ
     90:  {'x': 93, 'y': 93,  'angle': 0.6,  'spacing': 10}, # xを少し右へ
