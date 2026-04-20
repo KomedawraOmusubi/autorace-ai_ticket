@@ -9,7 +9,7 @@ def create_prediction_image(positions):
     positions: [{'car': 1, 'x': 100, 'y': 200}, ...] のようなリスト
     """
     # 1. 背景画像を読み込む
-    base_path = 'assets/background.png'
+    base_path = 'assets/1776668409385.png'
     if not os.path.exists(base_path):
         raise FileNotFoundError(f"背景画像が見つかりません: {base_path}")
         
