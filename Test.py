@@ -48,7 +48,7 @@ def calculate_full_positions(df):
             # 若番(idx小)ほど shiftがプラスになり「右(+)・上(-)」＝右上(内)へ
             shift = ((num_cars - 1) / 2 - idx) * 20 
             pos['x'] += shift
-            pos['y'] -= shift * 1.2  # 傾き1.0で右上方向へ
+            pos['y'] -= shift * 1.3   # 傾き1.0で右上方向へ
         else:
             # 【50m以降】8番が最外(左下)、7番が内(右上)
             # 7,8番の場合：7番(idx 0) -> reverse 1 / 8番(idx 1) -> reverse 0
