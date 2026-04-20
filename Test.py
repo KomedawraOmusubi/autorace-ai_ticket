@@ -7,80 +7,80 @@ import visualizer
 # ==========================================
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# ハンデラインの基準座標
-# コースの形状に合わせて、重ハンデほど「上」かつ「左」へスライド
-HANDE_LINE_COORDS = {
-    0:   {'x': 170, 'y': 400}, 
-    10:  {'x': 115, 'y': 370}, 
-    20:  {'x': 85,  'y': 345}, 
-    30:  {'x': 70,  'y': 315}, 
-    40:  {'x': 45,  'y': 280}, 
-    50:  {'x': 35,  'y': 240}, 
-    60:  {'x': 32,  'y': 205}, 
-    70:  {'x': 30,  'y': 175}, 
-    80:  {'x': 28,  'y': 145}, 
-    90:  {'x': 26,  'y': 115}, 
-    100: {'x': 25,  'y': 85},  
+# ハンデごとの【基準座標】と【配置角度】
+# angle: 0.0は垂直。マイナス値が大きくなるほど「右上(イン)ー左下(アウト)」の傾斜が強くなります。
+HANDE_CONFIG = {
+    0:   {'x': 185, 'y': 400, 'angle': 0.0},   # ★0mは垂直
+    10:  {'x': 130, 'y': 370, 'angle': -1.1},  
+    20:  {'x': 100, 'y': 345, 'angle': -1.2}, 
+    30:  {'x': 80,  'y': 315, 'angle': -1.0}, 
+    40:  {'x': 60,  'y': 280, 'angle': -0.8}, 
+    50:  {'x': 50,  'y': 240, 'angle': -0.6}, 
+    60:  {'x': 45,  'y': 205, 'angle': -0.5},  
+    70:  {'x': 42,  'y': 175, 'angle': -0.5}, 
+    80:  {'x': 40,  'y': 145, 'angle': -0.4}, 
+    90:  {'x': 38,  'y': 115, 'angle': -0.4}, 
+    100: {'x': 36,  'y': 85,  'angle': -0.3},  # ★100mは角度あり
 }
 
-X_LIMIT = (15, 385)  
-Y_LIMIT = (40, 460) 
+# 画像外への飛び出しを防ぐリミッター
+X_LIMIT = (15, 380)  
+Y_LIMIT = (30, 460) 
 
 # ==========================================
 # 2. 座標計算ロジック
 # ==========================================
 def calculate_full_positions(df):
-    # 同一ハンデ内での並びを制御するため、車番昇順で処理
+    # ハンデ順、次に車番順でソート
     df = df.sort_values(['ハンデ', '車'])
     results = []
     
+    # 同一ハンデ内の車番リストを作成
     handy_groups = df.groupby('ハンデ')['車'].apply(list).to_dict()
+    # 処理済みの台数をカウントする用
     processed_count = {h: 0 for h in handy_groups.keys()}
 
     for _, row in df.iterrows():
         car = int(row['車'])
         handy = int(row.get('ハンデ', 0))
         
-        base_handy = min(max(0, (handy // 10) * 10), 100)
-        pos = HANDE_LINE_COORDS[base_handy].copy()
+        # 設定が存在するハンデ(0,10,20...)に丸める
+        base_h = min(max(0, (handy // 10) * 10), 100)
+        config = HANDE_CONFIG[base_h]
         
         num_cars = len(handy_groups[handy])
-        # idx 0 がそのハンデの中で一番若い車番
         idx = processed_count[handy]
         processed_count[handy] += 1
 
         # 車番同士の間隔
-        spacing = 12 
-
-        # --- 配置ロジックの統一 ---
-        # 「若番ほど内側(右上)」「老番ほど外側(左下)」に並べる
-        # 基準点(pos)を2車の中間に持ってくるためのオフセット計算
-        offset = ((num_cars - 1) / 2 - idx) * spacing
+        spacing = 15 
+        # 中心からのオフセット計算
+        offset = (idx - (num_cars - 1) / 2) * spacing
         
-        if handy < 50:
-            # 0-40m: カーブがきついので角度を急にする
-            pos['x'] += offset
-            pos['y'] -= offset * 1.2
+        if config['angle'] == 0:
+            # 【垂直モード】 0mなど
+            target_x = config['x']
+            target_y = config['y'] + offset # 若番(idx小)が上、老番が下
         else:
-            # 50-100m: 直線に近いが、白線はまだ斜めなので角度を維持
-            # ここで「おかしい」部分を修正：xだけでなくyもしっかり動かす
-            pos['x'] += offset
-            pos['y'] -= offset * 0.8
+            # 【角度ありモード】 10m-100m
+            # 若番(idx小)ほど右上(x大, y小)へ
+            target_x = config['x'] - offset
+            target_y = config['y'] - (offset * config['angle'])
 
         results.append({
             'car': car,
-            'x': int(max(X_LIMIT[0], min(X_LIMIT[1], pos['x']))),
-            'y': int(max(Y_LIMIT[0], min(Y_LIMIT[1], pos['y'])))
+            'x': int(max(X_LIMIT[0], min(X_LIMIT[1], target_x))),
+            'y': int(max(Y_LIMIT[0], min(Y_LIMIT[1], target_y)))
         })
     return results
 
 # ==========================================
-# 3. メイン処理
+# 3. 実行メイン処理
 # ==========================================
 def run_prediction_and_send(df):
     try:
         if not WEBHOOK_URL or "YOUR_WEBHOOK" in WEBHOOK_URL:
-            print("エラー: Webhook URL未設定")
+            print("エラー: Discord Webhook URLを設定してください。")
             return
 
         positions = calculate_full_positions(df)
@@ -88,25 +88,35 @@ def run_prediction_and_send(df):
         
         if img_path:
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print(f"全{len(df)}台の配置図を送信しました。")
+            print(f"全ハンデ配置テスト（計{len(df)}台）を送信しました。")
+        else:
+            print("画像生成失敗")
 
     except Exception as e:
         print(f"エラー: {e}")
 
 # ==========================================
-# 4. テスト実行（全ハンデに複数配置）
+# 4. テスト実行（全ハンデに不規則な台数を配置）
 # ==========================================
 if __name__ == "__main__":
-    # 1〜8車を複数回使い、全ハンデに2台ずつ並べて確認
-    test_cases = []
+    # 各ハンデに 3車, 2車, 1車, 4車 のパターンを繰り返し配置
+    test_data = []
+    patterns = [3, 2, 1, 4]
     handicaps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     
-    car_num = 1
-    for h in handicaps:
-        test_cases.append({'車': car_num, 'ハンデ': h})
-        car_num = car_num + 1 if car_num < 8 else 1
-        test_cases.append({'車': car_num, 'ハンデ': h})
-        car_num = car_num + 1 if car_num < 8 else 1
+    car_cycle = [1, 2, 3, 4, 5, 6, 7, 8]
+    car_idx = 0
+    
+    for i, h in enumerate(handicaps):
+        # パターンから台数を決定（3, 2, 1, 4, 3, 2...）
+        num_to_place = patterns[i % len(patterns)]
+        
+        for _ in range(num_to_place):
+            test_data.append({
+                '車': car_cycle[car_idx % 8],
+                'ハンデ': h
+            })
+            car_idx += 1
 
-    df_test = pd.DataFrame(test_cases)
+    df_test = pd.DataFrame(test_data)
     run_prediction_and_send(df_test)
