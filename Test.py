@@ -5,109 +5,116 @@ import visualizer
 # ==========================================
 # 1. 環境設定と定数定義
 # ==========================================
-# DiscordのWebhook URLを設定
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# ハンデライン（画像上の各白線の基準中心座標）
-# ※1000029456.jpgの白線位置に合わせた微調整値
+# ハンデラインの基準座標（0mから100mまで定義）
 HANDE_LINE_COORDS = {
-    0:  {'x': 170, 'y': 400}, 
-    10: {'x': 115, 'y': 370}, 
-    20: {'x': 85,  'y': 345}, 
-    30: {'x': 70,  'y': 315}, 
-    40: {'x': 45,  'y': 280}, 
-    50: {'x': 35,  'y': 240}, 
+    0:   {'x': 170, 'y': 400}, 
+    10:  {'x': 115, 'y': 370}, 
+    20:  {'x': 85,  'y': 345}, 
+    30:  {'x': 70,  'y': 315}, 
+    40:  {'x': 45,  'y': 280}, 
+    50:  {'x': 35,  'y': 240}, 
+    60:  {'x': 35,  'y': 200}, 
+    70:  {'x': 35,  'y': 170}, 
+    80:  {'x': 35,  'y': 140}, 
+    90:  {'x': 35,  'y': 110}, 
+    100: {'x': 35,  'y': 80},  
 }
 
-# --- コースのリミッター（ネズミ色の範囲内のみ許可） ---
-X_LIMIT = (30, 350)  
-Y_LIMIT = (80, 450) 
+X_LIMIT = (20, 380)  
+Y_LIMIT = (50, 450) 
 
 # ==========================================
 # 2. 座標計算ロジック
 # ==========================================
 def calculate_full_positions(df):
-    df = df.sort_values('車')
     results = []
+    # ハンデごとにグループ化して、同一ハンデ内の並び順を管理
+    # 車番が重複してもリスト内での位置(index)で座標をずらす
     handy_groups = df.groupby('ハンデ')['車'].apply(list).to_dict()
+    
+    # 重複車番を正しく処理するため、各ハンデで何台目かを数えるカウンター
+    processed_count = {h: 0 for h in handy_groups.keys()}
 
     for _, row in df.iterrows():
         car = int(row['車'])
         handy = int(row.get('ハンデ', 0))
         
-        base_handy = handy if handy <= 50 else 50
-        pos = HANDE_LINE_COORDS.get(base_handy, HANDE_LINE_COORDS[50]).copy()
+        base_handy = min(max(0, (handy // 10) * 10), 100)
+        pos = HANDE_LINE_COORDS[base_handy].copy()
         
-        same_handy_cars = handy_groups[handy]
-        num_cars = len(same_handy_cars)
-        idx = same_handy_cars.index(car)
+        num_cars_at_this_handy = len(handy_groups[handy])
+        idx = processed_count[handy]
+        processed_count[handy] += 1
 
-        # --- 初期配置のオフセット計算 ---
+        # 隣同士の間隔（ここを詰めると密集します）
+        spacing = 15 
+
         if handy < 50:
-            # 【通常ハンデ】
-            # 若番(idx小)ほど shiftがプラスになり「右(+)・上(-)」＝右上(内)へ
-            shift = ((num_cars - 1) / 2 - idx) * 20 
+            # 【カーブ区間】
+            # 同一ハンデ内で「内側」から順に並べる計算
+            shift = ((num_cars_at_this_handy - 1) / 2 - idx) * spacing
             pos['x'] += shift
-            pos['y'] -= shift * 1.3   # 傾き1.0で右上方向へ
+            pos['y'] -= shift * 1.1 
         else:
-            # 【50m以降】8番が最外(左下)、7番が内(右上)
-            # 7,8番の場合：7番(idx 0) -> reverse 1 / 8番(idx 1) -> reverse 0
-            reverse_idx = (num_cars - 1) - idx
-            
-            # reverse_idxが大きい(7番)ほど「右(+)・上(-)」へ動かす
-            move_x = reverse_idx * 22
-            pos['x'] += move_x
-            pos['y'] -= move_x * 0.01  # ここをマイナスに修正（8番の右上へ7番を置く）
-
-        # --- リミッター適用 ---
-        final_x = max(X_LIMIT[0], min(X_LIMIT[1], pos['x']))
-        final_y = max(Y_LIMIT[0], min(Y_LIMIT[1], pos['y']))
+            # 【直線区間】
+            # イン(右)・アウト(左)の関係を整理
+            reverse_idx = (num_cars_at_this_handy - 1) - idx
+            move_val = reverse_idx * spacing
+            pos['x'] += move_val
+            pos['y'] -= move_val * 0.3 
 
         results.append({
             'car': car,
-            'x': int(final_x),
-            'y': int(final_y)
+            'x': int(max(X_LIMIT[0], min(X_LIMIT[1], pos['x']))),
+            'y': int(max(Y_LIMIT[0], min(Y_LIMIT[1], pos['y'])))
         })
     return results
 
 # ==========================================
-# 3. 実行・送信メイン処理
+# 3. メイン処理
 # ==========================================
 def run_prediction_and_send(df):
     try:
         if not WEBHOOK_URL or "YOUR_WEBHOOK" in WEBHOOK_URL:
-            print("エラー: Discord Webhook URLが正しく設定されていません。")
+            print("エラー: Webhook URLが未設定です。")
             return
 
-        # 1. 座標計算
         positions = calculate_full_positions(df)
-        
-        # 2. 画像生成 (visualizer.py を使用)
         img_path = visualizer.create_prediction_image(positions)
         
-        # 3. Discordへ送信
         if img_path:
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print("Discordに展開予想図を送信しました。")
-        else:
-            print("画像生成に失敗しました。")
+            print(f"全{len(df)}台の配置図を送信しました。")
 
     except Exception as e:
-        print(f"エラーが発生しました: {e}")
+        print(f"エラー: {e}")
 
 # ==========================================
-# 4. テスト実行
+# 4. 全ハンデ埋め尽くしテスト（1-8車を繰り返し使用）
 # ==========================================
 if __name__ == "__main__":
-    test_data = [
+    # 各ハンデに車を配置するデータセット
+    # 0m〜100mの全11箇所に、1〜8車を順番に2回以上使って配置
+    full_test_data = [
         {'車': 1, 'ハンデ': 0},
         {'車': 2, 'ハンデ': 10},
-        {'車': 3, 'ハンデ': 10},
+        {'車': 3, 'ハンデ': 10}, # 10mに2台
         {'車': 4, 'ハンデ': 20},
         {'車': 5, 'ハンデ': 30},
         {'車': 6, 'ハンデ': 40},
-        {'車': 7, 'ハンデ': 50},
+        {'車': 7, 'ハンデ': 40}, # 40mに2台
         {'車': 8, 'ハンデ': 50},
+        {'車': 1, 'ハンデ': 50}, # 1を再利用
+        {'車': 2, 'ハンデ': 60},
+        {'車': 3, 'ハンデ': 70},
+        {'車': 4, 'ハンデ': 80},
+        {'車': 5, 'ハンデ': 80}, # 80mに2台
+        {'車': 6, 'ハンデ': 90},
+        {'車': 7, 'ハンデ': 100},
+        {'車': 8, 'ハンデ': 100}, # 100mに2台
     ]
-    df_test = pd.DataFrame(test_data)
+    
+    df_test = pd.DataFrame(full_test_data)
     run_prediction_and_send(df_test)
