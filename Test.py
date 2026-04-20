@@ -48,7 +48,7 @@ def calculate_full_positions(df):
             # 【通常ハンデ】センター振り分け（内が若番、外が老番）
             shift = ((num_cars - 1) / 2 - idx) * 20 
             pos['x'] += shift
-            pos['y'] -= shift * 0.8
+            pos['y'] -= shift * 0.6
         else:
             # 【50m以降】8番が最外(左)、7番が内(右)
             reverse_idx = (num_cars - 1) - idx
