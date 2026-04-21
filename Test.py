@@ -9,7 +9,7 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 POINT_A   = {'x': 175, 'y': 420}
 POINT_B   = {'x': 420, 'y': 410}
 POINT_B_2 = {'x': 570, 'y': 320}
-POINT_B_3 = {'x': 580, 'y': 280}
+POINT_B_3 = {'x': 590, 'y': 280}
 POINT_C   = {'x': 598, 'y': 242}
 
 # 赤線を引く順番
