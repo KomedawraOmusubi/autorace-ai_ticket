@@ -9,9 +9,9 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 POINT_A   = {'x': 175, 'y': 420}
 POINT_B   = {'x': 420, 'y': 410}
 POINT_B_1 = {'x': 500, 'y': 380}
-POINT_B_2 = {'x': 570, 'y': 320}
-POINT_B_3 = {'x': 590, 'y': 280}
-POINT_C   = {'x': 598, 'y': 242}
+POINT_B_2 = {'x': 575, 'y': 320}
+POINT_B_3 = {'x': 595, 'y': 280}
+POINT_C   = {'x': 602, 'y': 242}
 
 WAYPOINTS = [POINT_A, POINT_B, POINT_B_1, POINT_B_2, POINT_B_3, POINT_C]
 
