@@ -21,9 +21,8 @@ HANDE_CONFIG = {
 }
 
 # --- 2. 各ハンデごとの「仮想A地点」 ---
-# 各ハンデが「最初にどこに絞り込むか」をここで個別に設定できます
 CUSTOM_A_POINTS = {
-    0:   {'x': 175, 'y': 400},
+    0:   {'x': 175, 'y': 400}, 
     10:  {'x': 175, 'y': 390},
     20:  {'x': 175, 'y': 390},
     30:  {'x': 175, 'y': 380},
@@ -38,17 +37,17 @@ CUSTOM_A_POINTS = {
 
 # --- 3. A地点通過後のウェイポイント ---
 POINT_B   = {'x': 455, 'y': 410}
-POINT_B_1 = {'x': 550, 'y': 370}
+POINT_B_1 = {'x': 550, 'y': 370} # 基本のB_1（8号車基準）
 POINT_B_2 = {'x': 570, 'y': 350}
 POINT_B_3 = {'x': 590, 'y': 310}
 POINT_C   = {'x': 600, 'y': 250}
 
 WAYPOINTS_AFTER_A = [
-    {'pos': POINT_B},
-    {'pos': POINT_B_1},
-    {'pos': POINT_B_2},
-    {'pos': POINT_B_3},
-    {'pos': POINT_C}
+    {'name': 'B',   'pos': POINT_B},
+    {'name': 'B_1', 'pos': POINT_B_1},
+    {'name': 'B_2', 'pos': POINT_B_2},
+    {'name': 'B_3', 'pos': POINT_B_3},
+    {'name': 'C',   'pos': POINT_C}
 ]
 
 def calculate_rail_positions(df):
@@ -64,17 +63,25 @@ def calculate_rail_positions(df):
         curr_x, curr_y = start_pos['x'], start_pos['y']
         history = [(curr_x, curr_y)]
 
-        # 8号車を境界（offset=0）とし、他の車は必ずその内側を通る
+        # 8号車を基準、他は5pxずつ内側
         lane_offset = (car - 8) * 5
 
         # [STEP 1] A地点（合流）
-        # ここではCUSTOM_A_POINTSの値をそのまま使い、一旦1点に集約させて交差を作る
         target_a = CUSTOM_A_POINTS.get(handy_key, CUSTOM_A_POINTS[0])
         history.append((target_a['x'], target_a['y']))
 
         # [STEP 2] B以降のウェイポイント
-        # B_1以降は必ず8号車の内側（lane_offset適用）を走る
         for wp in WAYPOINTS_AFTER_A:
+            # --- 0ハンデ車専用の直線ロジック ---
+            if handy == 0:
+                if wp['name'] == 'B':
+                    continue # B地点は通らず真っ直ぐB_1へ
+                if wp['name'] == 'B_1':
+                    # B_1地点のyを400に固定して水平にする
+                    history.append((wp['pos']['x'], 400))
+                    continue
+
+            # 通常の走行（8号車の内側5pxルール）
             target_x = wp['pos']['x']
             target_y = wp['pos']['y'] + lane_offset
             history.append((target_x, target_y))
