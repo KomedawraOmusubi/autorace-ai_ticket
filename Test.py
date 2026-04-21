@@ -18,9 +18,9 @@ CUSTOM_A_POINTS = {
     90:  {'x': 175, 'y': 370}, 100: {'x': 175, 'y': 370}
 }
 
-# 輪郭の点線データ
+# 輪郭の点線データ（ご提示の最新版）
 OUTER_LINE = [(175, 400), (455, 395), (550, 380), (570, 370), (590, 330), (625, 210)]
-INNER_LINE = [(175, 360), (455, 355), (550, 340), (570, 330), (590, 290), (600 ,170)]
+INNER_LINE = [(175, 360), (455, 355), (550, 340), (570, 330), (590, 290), (600, 170)]
 
 WAYPOINTS_AFTER_A = [
     {'name': 'B',   'pos': {'x': 455, 'y': 395}},
@@ -39,6 +39,7 @@ def calculate_rail_positions(df):
         start_pos = HANDE_CONFIG.get(handy_key, HANDE_CONFIG[0])
         history = [(start_pos['x'], start_pos['y'])]
         
+        # 同じハンデなら±4pxの幅で散らす
         base_handy_offset = -(handy / 10) * 5
         spread_offset = -4 + (car - 1) * (8 / 7)
         total_offset = base_handy_offset + spread_offset
@@ -46,6 +47,7 @@ def calculate_rail_positions(df):
         history.append((CUSTOM_A_POINTS[handy_key]['x'], CUSTOM_A_POINTS[handy_key]['y']))
 
         for wp in WAYPOINTS_AFTER_A:
+            # 1号車専用の補正
             if car == 1:
                 if wp['name'] == 'B': history.append((wp['pos']['x'], 395)); continue
                 if wp['name'] == 'B_1': history.append((wp['pos']['x'], 350)); continue
@@ -65,5 +67,6 @@ def run_simulation(df):
         visualizer.send_to_discord(img_path, WEBHOOK_URL)
 
 if __name__ == "__main__":
+    # テスト走行：全車異なるハンデの場合
     test_data = [{'車': i+1, 'ハンデ': i*10} for i in range(8)]
     run_simulation(pd.DataFrame(test_data))
