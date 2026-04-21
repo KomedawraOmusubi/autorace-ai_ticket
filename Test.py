@@ -3,18 +3,16 @@ import math
 import pandas as pd
 import visualizer
 
-# ==========================================
-# 1. 環境設定と座標レールの定義
-# ==========================================
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# 走行レール（赤線で結ぶターゲット）
+# 走行レール定義
 POINT_A   = {'x': 175, 'y': 420}
 POINT_B   = {'x': 420, 'y': 410}
 POINT_B_2 = {'x': 580, 'y': 320}
 POINT_B_3 = {'x': 605, 'y': 280}
 POINT_C   = {'x': 598, 'y': 242}
 
+# 赤線を引く順番
 WAYPOINTS = [POINT_A, POINT_B, POINT_B_2, POINT_B_3, POINT_C]
 
 HANDE_CONFIG = {
@@ -24,20 +22,15 @@ HANDE_CONFIG = {
     90:  {'x': 93,  'y': 92},  100: {'x': 125, 'y': 66}
 }
 
-# ==========================================
-# 2. レール走行シミュレーション
-# ==========================================
 def calculate_rail_positions(df):
     df = df.sort_values(['ハンデ', '車'])
     final_results = []
     
-    # 距離の計算
-    dists = []
-    for i in range(len(WAYPOINTS) - 1):
+    # 距離計算
+    total_dist = 0
+    for i in range(len(WAYPOINTS)-1):
         p1, p2 = WAYPOINTS[i], WAYPOINTS[i+1]
-        dists.append(math.sqrt((p2['x'] - p1['x'])**2 + (p2['y'] - p1['y'])**2))
-    
-    total_allowed_dist = sum(dists)
+        total_dist += math.sqrt((p2['x']-p1['x'])**2 + (p2['y']-p1['y'])**2)
 
     for _, row in df.iterrows():
         car = int(row['車'])
@@ -45,53 +38,27 @@ def calculate_rail_positions(df):
         config = HANDE_CONFIG[min(max(0, (handy // 10) * 10), 100)]
         
         curr_x, curr_y = config['x'], config['y']
-        move_left = total_allowed_dist
+        move_left = total_dist
 
-        # スタート地点からA地点へ（ここも赤線に含めるならWAYPOINTSに入れる）
-        d_start_to_a = math.sqrt((POINT_A['x'] - curr_x)**2 + (POINT_A['y'] - curr_y)**2)
-        if move_left > 0 and d_start_to_a > 0:
-            m = min(move_left, d_start_to_a)
-            curr_x += (POINT_A['x'] - curr_x) * (m/d_start_to_a)
-            curr_y += (POINT_A['y'] - curr_y) * (m/d_start_to_a)
-            move_left -= m
-
-        # A -> B -> B2 -> B3 -> C を順番に辿る
-        for i in range(len(WAYPOINTS) - 1):
-            if move_left <= 0: break
-            target = WAYPOINTS[i+1]
-            d = math.sqrt((target['x'] - curr_x)**2 + (target['y'] - curr_y)**2)
-            if d > 0:
+        # スタート -> A -> B -> B2 -> B3 -> C
+        full_path = [POINT_A] + WAYPOINTS[1:]
+        for pt in full_path:
+            d = math.sqrt((pt['x'] - curr_x)**2 + (pt['y'] - curr_y)**2)
+            if move_left > 0 and d > 0:
                 m = min(move_left, d)
-                curr_x += (target['x'] - curr_x) * (m/d)
-                curr_y += (target['y'] - curr_y) * (m/d)
+                curr_x += (pt['x'] - curr_x) * (m/d)
+                curr_y += (pt['y'] - curr_y) * (m/d)
                 move_left -= m
 
         final_results.append({'car': car, 'x': int(curr_x), 'y': int(curr_y)})
-        
     return final_results
 
-# ==========================================
-# 3. 実行（描画オプション付き）
-# ==========================================
 def run_simulation(df):
-    try:
-        positions = calculate_rail_positions(df)
-        
-        # 描画用データの作成
-        # visualizer側で「線の描画」をサポートさせるための引数例
-        # draw_lines=[(p1, p2), (p2, p3)...] のような形式を想定
-        lines = []
-        for i in range(len(WAYPOINTS) - 1):
-            lines.append((WAYPOINTS[i], WAYPOINTS[i+1]))
-
-        # 引数に path_lines を追加（visualizer側の実装に合わせて調整してください）
-        img_path = visualizer.create_prediction_image(positions, draw_lines=lines, line_color="red")
-        
-        if img_path:
-            visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print("送信完了：ポイント間を赤線で結び、走行ルートを可視化しました。")
-    except Exception as e:
-        print(f"エラーが発生しました: {e}")
+    positions = calculate_rail_positions(df)
+    # WAYPOINTSを渡して赤線を引かせる
+    img_path = visualizer.create_prediction_image(positions, waypoints=WAYPOINTS)
+    if img_path:
+        visualizer.send_to_discord(img_path, WEBHOOK_URL)
 
 if __name__ == "__main__":
     test_data = [{'車': (i % 8) + 1, 'ハンデ': i*10} for i in range(11)]
