@@ -5,8 +5,9 @@ import visualizer
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# 基準座標
-POINT_A   = {'x': 175, 'y': 425} # yを少し大きく（内側に）調整
+# --- 基準座標の再定義 ---
+# POINT_Aのyを 435 まで下げて、確実に全員が400より内側を通るようにします
+POINT_A   = {'x': 175, 'y': 435} 
 POINT_B   = {'x': 420, 'y': 410}
 POINT_B_1 = {'x': 500, 'y': 380}
 POINT_B_2 = {'x': 570, 'y': 340}
@@ -15,7 +16,7 @@ POINT_C   = {'x': 600, 'y': 250}
 
 WAYPOINTS = [POINT_A, POINT_B, POINT_B_1, POINT_B_2, POINT_B_3, POINT_C]
 
-# 1号車スタートのY座標は 400
+# 1号車スタートのY=400
 HANDE_CONFIG = {
     0: {'x': 175, 'y': 400}, 10: {'x': 120, 'y': 380}, 20: {'x': 87, 'y': 354},
     30: {'x': 65, 'y': 323}, 40: {'x': 45, 'y': 285}, 50: {'x': 35, 'y': 245},
@@ -27,10 +28,13 @@ def calculate_rail_positions(df):
     df = df.sort_values(['ハンデ', '車'])
     final_results = []
     
+    # 0m車の走行距離を計算
     total_dist = 0
-    for i in range(len(WAYPOINTS)-1):
-        p1, p2 = WAYPOINTS[i], WAYPOINTS[i+1]
-        total_dist += math.sqrt((p2['x']-p1['x'])**2 + (p2['y']-p1['y'])**2)
+    # スタート(175,400)から最初のA地点、その後各経由地
+    curr_ref_x, curr_ref_y = HANDE_CONFIG[0]['x'], HANDE_CONFIG[0]['y']
+    for pt in WAYPOINTS:
+        total_dist += math.sqrt((pt['x'] - curr_ref_x)**2 + (pt['y'] - curr_ref_y)**2)
+        curr_ref_x, curr_ref_y = pt['x'], pt['y']
 
     for _, row in df.iterrows():
         car = int(row['車'])
@@ -42,21 +46,18 @@ def calculate_rail_positions(df):
         history = [(curr_x, curr_y)]
 
         for pt in WAYPOINTS:
-            # 基本のイン寄りオフセット (8号車を赤線基準にする)
+            # 基本のオフセット
             lane_offset = (car - 8) * 4 
             
-            # --- 特別ルール: POINT_A通過時 ---
-            # 全車が1号車スタート位置(y=400)より内側(y>400)を通るように強制
-            if pt == POINT_A:
-                # 8号車(一番外)でも y=410 あたりを通るように調整し、
-                # 1号車はさらに内側の y=438 あたりを通る計算になります
-                target_y = pt['y'] + lane_offset
-                if target_y < 405: # もし405より外側なら補正
-                    target_y = 405 + (car * 2) 
-            else:
-                target_y = pt['y'] + lane_offset
-
+            # ターゲット座標の決定
             target_x = pt['x']
+            target_y = pt['y'] + lane_offset
+
+            # 特別ルール: POINT_Aでは全員が405以上（内側）を通るように強制
+            if pt == POINT_A:
+                if target_y < 405:
+                    target_y = 405 + (car * 3) # 車番ごとに少しバラけつつ、全員405以降
+
             d = math.sqrt((target_x - curr_x)**2 + (target_y - curr_y)**2)
             
             if move_left > 0 and d > 0:
@@ -73,12 +74,12 @@ def calculate_rail_positions(df):
         })
     return final_results
 
+# 以下run_simulation等は変更なし
 def run_simulation(df):
     results = calculate_rail_positions(df)
     img_path = visualizer.create_prediction_image(results, waypoints=WAYPOINTS)
     if img_path:
         visualizer.send_to_discord(img_path, WEBHOOK_URL)
-        print("POINT_Aで全員が絞り込むモデルを送信しました。")
 
 if __name__ == "__main__":
     test_data = [{'車': i+1, 'ハンデ': i*10} for i in range(8)]
