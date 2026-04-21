@@ -6,9 +6,9 @@ import visualizer
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
 # 基準座標
-POINT_A, POINT_B = {'x': 175, 'y': 420}, {'x': 420, 'y': 410}
-POINT_B_1, POINT_B_2 = {'x': 500, 'y': 380}, {'x': 570, 'y': 320}
-POINT_B_3, POINT_C = {'x': 590, 'y': 280}, {'x': 598, 'y': 242}
+POINT_A,POINT_B = {'x': 175, 'y': 420}, {'x': 420, 'y': 430}
+POINT_B_1, POINT_B_2 = {'x': 500, 'y': 390}, {'x': 570, 'y': 330}
+POINT_B_3, POINT_C = {'x': 590, 'y': 290}, {'x': 598, 'y': 250}
 WAYPOINTS = [POINT_A, POINT_B, POINT_B_1, POINT_B_2, POINT_B_3, POINT_C]
 
 HANDE_CONFIG = {
