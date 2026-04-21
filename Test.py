@@ -8,10 +8,11 @@ import visualizer
 # ==========================================
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# 走行レール（A -> B -> B_2 -> C）
+# 走行レール（A -> B -> B_2 -> B_3 -> C）
 POINT_A   = {'x': 175, 'y': 420}  # 0m地点
 POINT_B   = {'x': 420, 'y': 410}  # ゴール線
-POINT_B_2 = {'x': 580, 'y': 320}  # コーナー入り口（芝生回避用の中継点）
+POINT_B_2 = {'x': 560, 'y': 340}  # コーナー入り口
+POINT_B_3 = {'x': 605, 'y': 280}  # 旋回中間地点（追加）
 POINT_C   = {'x': 598, 'y': 242}  # コーナーのイン角（ターゲット）
 
 HANDE_CONFIG = {
@@ -22,17 +23,19 @@ HANDE_CONFIG = {
 }
 
 # ==========================================
-# 2. レール走行シミュレーション
+# 2. レール走行シミュレーション（5段階）
 # ==========================================
 def calculate_rail_positions(df):
     df = df.sort_values(['ハンデ', '車'])
     final_results = []
     
-    # 基準：0m選手が A -> B -> B_2 -> C に到達するまでの総移動距離
+    # 0m選手が完走する全区間の距離を合計
     dist_ab   = math.sqrt((POINT_B['x'] - POINT_A['x'])**2 + (POINT_B['y'] - POINT_A['y'])**2)
     dist_bb2  = math.sqrt((POINT_B_2['x'] - POINT_B['x'])**2 + (POINT_B_2['y'] - POINT_B['y'])**2)
-    dist_b2c  = math.sqrt((POINT_C['x'] - POINT_B_2['x'])**2 + (POINT_C['y'] - POINT_B_2['y'])**2)
-    total_allowed_dist = dist_ab + dist_bb2 + dist_b2c
+    dist_b2b3 = math.sqrt((POINT_B_3['x'] - POINT_B_2['x'])**2 + (POINT_B_3['y'] - POINT_B_2['y'])**2)
+    dist_b3c  = math.sqrt((POINT_C['x'] - POINT_B_3['x'])**2 + (POINT_C['y'] - POINT_B_3['y'])**2)
+    
+    total_allowed_dist = dist_ab + dist_bb2 + dist_b2b3 + dist_b3c
 
     for _, row in df.iterrows():
         car = int(row['車'])
@@ -42,37 +45,19 @@ def calculate_rail_positions(df):
         curr_x, curr_y = config['x'], config['y']
         move_left = total_allowed_dist
 
-        # 1. 各自のスタート地点から A地点へ
-        d = math.sqrt((POINT_A['x'] - curr_x)**2 + (POINT_A['y'] - curr_y)**2)
-        if move_left > 0 and d > 0:
-            m = min(move_left, d)
-            curr_x += (POINT_A['x'] - curr_x) * (m/d)
-            curr_y += (POINT_A['y'] - curr_y) * (m/d)
-            move_left -= m
+        # 経由地のリスト
+        waypoints = [POINT_A, POINT_B, POINT_B_2, POINT_B_3, POINT_C]
 
-        # 2. A地点から B地点へ
-        d = math.sqrt((POINT_B['x'] - curr_x)**2 + (POINT_B['y'] - curr_y)**2)
-        if move_left > 0 and d > 0:
-            m = min(move_left, d)
-            curr_x += (POINT_B['x'] - curr_x) * (m/d)
-            curr_y += (POINT_B['y'] - curr_y) * (m/d)
-            move_left -= m
-
-        # 3. B地点から B_2地点へ（追加）
-        d = math.sqrt((POINT_B_2['x'] - curr_x)**2 + (POINT_B_2['y'] - curr_y)**2)
-        if move_left > 0 and d > 0:
-            m = min(move_left, d)
-            curr_x += (POINT_B_2['x'] - curr_x) * (m/d)
-            curr_y += (POINT_B_2['y'] - curr_y) * (m/d)
-            move_left -= m
-
-        # 4. B_2地点から C地点へ
-        d = math.sqrt((POINT_C['x'] - curr_x)**2 + (POINT_C['y'] - curr_y)**2)
-        if move_left > 0 and d > 0:
-            m = min(move_left, d)
-            curr_x += (POINT_C['x'] - curr_x) * (m/d)
-            curr_y += (POINT_C['y'] - curr_y) * (m/d)
-            move_left -= m
+        for pt in waypoints:
+            if move_left <= 0:
+                break
+            
+            d = math.sqrt((pt['x'] - curr_x)**2 + (pt['y'] - curr_y)**2)
+            if d > 0:
+                m = min(move_left, d)
+                curr_x += (pt['x'] - curr_x) * (m/d)
+                curr_y += (pt['y'] - curr_y) * (m/d)
+                move_left -= m
 
         final_results.append({'car': car, 'x': int(curr_x), 'y': int(curr_y)})
         
@@ -87,7 +72,7 @@ def run_simulation(df):
         img_path = visualizer.create_prediction_image(positions)
         if img_path:
             visualizer.send_to_discord(img_path, WEBHOOK_URL)
-            print("送信完了：中継点B_2を経由し、芝生を回避する弧の軌道を再現しました。")
+            print("送信完了：新設ポイントB_3を経由し、より滑らかなコーナリングを再現しました。")
     except Exception as e:
         print(f"エラーが発生しました: {e}")
 
