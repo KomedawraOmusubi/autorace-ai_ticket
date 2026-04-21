@@ -5,15 +5,14 @@ import visualizer
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# --- 走行レール定義 (B1を追加) ---
+# --- 走行レールの定義（基準となるセンターライン） ---
 POINT_A   = {'x': 175, 'y': 420}
 POINT_B   = {'x': 420, 'y': 410}
-POINT_B_1 = {'x': 500, 'y': 380}  # ← 新設：コーナーへの導入点
+POINT_B_1 = {'x': 500, 'y': 380} # 新設
 POINT_B_2 = {'x': 570, 'y': 320}
 POINT_B_3 = {'x': 590, 'y': 280}
 POINT_C   = {'x': 598, 'y': 242}
 
-# 赤線を引く順番（B1を挿入）
 WAYPOINTS = [POINT_A, POINT_B, POINT_B_1, POINT_B_2, POINT_B_3, POINT_C]
 
 HANDE_CONFIG = {
@@ -27,11 +26,11 @@ def calculate_rail_positions(df):
     df = df.sort_values(['ハンデ', '車'])
     final_results = []
     
-    # 0m選手が完走する全区間の距離を合計 (B1を含む)
-    total_dist = 0
+    # 0m選手が全区間を完走する距離
+    total_allowed_dist = 0
     for i in range(len(WAYPOINTS)-1):
         p1, p2 = WAYPOINTS[i], WAYPOINTS[i+1]
-        total_dist += math.sqrt((p2['x']-p1['x'])**2 + (p2['y']-p1['y'])**2)
+        total_allowed_dist += math.sqrt((p2['x']-p1['x'])**2 + (p2['y']-p1['y'])**2)
 
     for _, row in df.iterrows():
         car = int(row['車'])
@@ -39,28 +38,45 @@ def calculate_rail_positions(df):
         config = HANDE_CONFIG[min(max(0, (handy // 10) * 10), 100)]
         
         curr_x, curr_y = config['x'], config['y']
-        move_left = total_dist
+        move_left = total_allowed_dist
+        
+        # --- ラインの分散ロジック ---
+        # 4号車を基準に、1号車はイン側（yマイナス）、8号車はアウト側（yプラス）
+        # ここの数値を大きくするとコース幅が広がります
+        lane_offset = (car - 4) * 6 
 
-        # 経路上の各ポイントを順番に消化
+        # A地点〜C地点までの各経由地を、各自のオフセットを持ったターゲットとして巡回
         for pt in WAYPOINTS:
-            d = math.sqrt((pt['x'] - curr_x)**2 + (pt['y'] - curr_y)**2)
-            if move_left > 0 and d > 0:
-                m = min(move_left, d)
-                curr_x += (pt['x'] - curr_x) * (m/d)
-                curr_y += (pt['y'] - curr_y) * (m/d)
-                move_left -= m
+            target_x = pt['x']
+            target_y = pt['y'] + lane_offset
+            
+            dist = math.sqrt((target_x - curr_x)**2 + (target_y - curr_y)**2)
+            if move_left > 0 and dist > 0:
+                move_dist = min(move_left, dist)
+                curr_x += (target_x - curr_x) * (move_dist / dist)
+                curr_y += (target_y - curr_y) * (move_dist / dist)
+                move_left -= move_dist
 
         final_results.append({'car': car, 'x': int(curr_x), 'y': int(curr_y)})
+        
     return final_results
 
 def run_simulation(df):
-    positions = calculate_rail_positions(df)
-    # WAYPOINTSを渡して赤線を引かせる
-    img_path = visualizer.create_prediction_image(positions, waypoints=WAYPOINTS)
-    if img_path:
-        visualizer.send_to_discord(img_path, WEBHOOK_URL)
+    try:
+        # 1. 座標計算
+        positions = calculate_rail_positions(df)
+        
+        # 2. 画像作成（赤線ルートを渡す）
+        img_path = visualizer.create_prediction_image(positions, waypoints=WAYPOINTS)
+        
+        # 3. Discord送信
+        if img_path:
+            visualizer.send_to_discord(img_path, WEBHOOK_URL)
+            print("送信完了：B1経由・ライン分散モデル")
+    except Exception as e:
+        print(f"エラー: {e}")
 
 if __name__ == "__main__":
-    # テストデータ (全ハンデ1台ずつ)
-    test_data = [{'車': (i % 8) + 1, 'ハンデ': i*10} for i in range(11)]
+    # テスト走行データ
+    test_data = [{'車': i+1, 'ハンデ': i*10} for i in range(8)]
     run_simulation(pd.DataFrame(test_data))
