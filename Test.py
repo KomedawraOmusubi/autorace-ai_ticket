@@ -36,8 +36,8 @@ CUSTOM_A_POINTS = {
 }
 
 # --- 3. A地点通過後のウェイポイント ---
-POINT_B   = {'x': 455, 'y': 410}
-POINT_B_1 = {'x': 550, 'y': 370} # 基準座標（8号車用）
+POINT_B   = {'x': 455, 'y': 410} # 基準y=410
+POINT_B_1 = {'x': 550, 'y': 370}
 POINT_B_2 = {'x': 570, 'y': 350}
 POINT_B_3 = {'x': 590, 'y': 310}
 POINT_C   = {'x': 600, 'y': 250}
@@ -72,16 +72,11 @@ def calculate_rail_positions(df):
 
         # [STEP 2] B以降のウェイポイント
         for wp in WAYPOINTS_AFTER_A:
-            # --- 0ハンデ車専用の特例ロジック ---
-            if handy == 0:
-                if wp['name'] == 'B':
-                    continue # B（コーナー入口）は通らず直進
-                if wp['name'] == 'B_1':
-                    # B_1の到達点を (550, 370) に指定
-                    history.append((550, 370))
-                    continue
+            # --- 1号車（ハンデ0）のポイントBのみ特別指定 ---
+            if car == 1 and wp['name'] == 'B':
+                history.append((wp['pos']['x'], 395))
+                continue
 
-            # 通常走行（8号車の内側5pxルール）
             target_x = wp['pos']['x']
             target_y = wp['pos']['y'] + lane_offset
             history.append((target_x, target_y))
@@ -101,6 +96,5 @@ def run_simulation(df):
         visualizer.send_to_discord(img_path, WEBHOOK_URL)
 
 if __name__ == "__main__":
-    # テストデータ：1号車（0m）〜8号車（70m）
     test_data = [{'車': i+1, 'ハンデ': i*10} for i in range(8)]
     run_simulation(pd.DataFrame(test_data))
