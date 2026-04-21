@@ -16,19 +16,22 @@ HANDE_CONFIG = {
 }
 
 # --- 2. 各ハンデごとの「仮想A地点」 ---
-# ここで8号車（ピンク）が通る基準座標を指定します
-CUSTOM_A_POINTS = {
-    h: {'x': 175, 'y': 430} for h in HANDE_CONFIG.keys()
-}
+CUSTOM_A_POINTS = {h: {'x': 175, 'y': 430} for h in HANDE_CONFIG.keys()}
 
-# --- 3. A地点通過後の共通ルート ---
+# --- 3. A地点通過後のウェイポイント ---
 POINT_B   = {'x': 420, 'y': 410}
 POINT_B_1 = {'x': 500, 'y': 380}
 POINT_B_2 = {'x': 570, 'y': 340}
 POINT_B_3 = {'x': 590, 'y': 300}
 POINT_C   = {'x': 600, 'y': 250}
 
-WAYPOINTS_AFTER_A = [POINT_B, POINT_B_1, POINT_B_2, POINT_B_3, POINT_C]
+WAYPOINTS_AFTER_A = [
+    {'name': 'B',   'pos': POINT_B},
+    {'name': 'B_1', 'pos': POINT_B_1},
+    {'name': 'B_2', 'pos': POINT_B_2},
+    {'name': 'B_3', 'pos': POINT_B_3},
+    {'name': 'C',   'pos': POINT_C}
+]
 
 def calculate_rail_positions(df):
     df = df.sort_values(['ハンデ', '車'])
@@ -43,36 +46,35 @@ def calculate_rail_positions(df):
         curr_x, curr_y = start_pos['x'], start_pos['y']
         history = [(curr_x, curr_y)]
 
-        # --- ここを修正：各車を内側に10ずつずらす ---
-        # 8号車: (8-8)*10 = 0   (y: 430)
-        # 7号車: (7-8)*10 = -10 (y: 420)
-        # 1号車: (1-8)*10 = -70 (y: 360)
-        lane_offset = (car - 8) * 10
+        # --- ロジック修正：8号車を「絶対的な外枠」とする ---
+        # 8号車(car=8)の時、offsetは必ず0
+        # 1-7号車は (car-8) が負になるため、必ずy座標が減少（内側へ移動）する
+        lane_offset = (car - 8) * 5
 
-        # [STEP 1] A地点（合流地点）
+        # [STEP 1] A地点（合流）
         target_a = CUSTOM_A_POINTS.get(handy_key, CUSTOM_A_POINTS[0])
-        curr_x = target_a['x']
-        curr_y = target_a['y'] + lane_offset
-        history.append((curr_x, curr_y))
+        # A地点では混戦を表現するため、オフセットなしで1点に集約
+        history.append((target_a['x'], target_a['y']))
 
-        # [STEP 2] 以降のウェイポイント
-        for pt in WAYPOINTS_AFTER_A:
-            target_x = pt['x']
-            target_y = pt['y'] + lane_offset
-            curr_x, curr_y = target_x, target_y
-            history.append((curr_x, curr_y))
+        # [STEP 2] B以降のウェイポイント
+        for wp in WAYPOINTS_AFTER_A:
+            # B_1以降、すべてのウェイポイントで8号車のライン（基準値）から
+            # lane_offset分だけ「内側」を通るように計算
+            target_x = wp['pos']['x']
+            target_y = wp['pos']['y'] + lane_offset
+            history.append((target_x, target_y))
 
         final_results.append({
             'car': car, 
-            'last_pos': (curr_x, curr_y), 
+            'last_pos': history[-1], 
             'path': history
         })
     return final_results
 
 def run_simulation(df):
     results = calculate_rail_positions(df)
-    virtual_waypoints = [CUSTOM_A_POINTS[0]] + WAYPOINTS_AFTER_A
-    img_path = visualizer.create_prediction_image(results, waypoints=virtual_waypoints)
+    virtual_pts = [CUSTOM_A_POINTS[0]] + [wp['pos'] for wp in WAYPOINTS_AFTER_A]
+    img_path = visualizer.create_prediction_image(results, virtual_pts)
     if img_path:
         visualizer.send_to_discord(img_path, WEBHOOK_URL)
 
