@@ -1,55 +1,85 @@
 import os
-import requests
-from PIL import Image, ImageDraw
+import math
+import pandas as pd
+import visualizer
 
-def create_prediction_image(positions_with_path, waypoints=None):
-    base_path = 'assets/20260420-163135.jpg'
-    if not os.path.exists(base_path):
-        raise FileNotFoundError(f"背景画像が見つかりません: {base_path}")
+WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
+
+# 基準座標
+POINT_A   = {'x': 175, 'y': 425} # yを少し大きく（内側に）調整
+POINT_B   = {'x': 420, 'y': 410}
+POINT_B_1 = {'x': 500, 'y': 380}
+POINT_B_2 = {'x': 570, 'y': 340}
+POINT_B_3 = {'x': 590, 'y': 300}
+POINT_C   = {'x': 600, 'y': 250}
+
+WAYPOINTS = [POINT_A, POINT_B, POINT_B_1, POINT_B_2, POINT_B_3, POINT_C]
+
+# 1号車スタートのY座標は 400
+HANDE_CONFIG = {
+    0: {'x': 175, 'y': 400}, 10: {'x': 120, 'y': 380}, 20: {'x': 87, 'y': 354},
+    30: {'x': 65, 'y': 323}, 40: {'x': 45, 'y': 285}, 50: {'x': 35, 'y': 245},
+    60: {'x': 36, 'y': 202}, 70: {'x': 48, 'y': 163}, 80: {'x': 68, 'y': 125},
+    90: {'x': 93, 'y': 92}, 100: {'x': 125, 'y': 66}
+}
+
+def calculate_rail_positions(df):
+    df = df.sort_values(['ハンデ', '車'])
+    final_results = []
+    
+    total_dist = 0
+    for i in range(len(WAYPOINTS)-1):
+        p1, p2 = WAYPOINTS[i], WAYPOINTS[i+1]
+        total_dist += math.sqrt((p2['x']-p1['x'])**2 + (p2['y']-p1['y'])**2)
+
+    for _, row in df.iterrows():
+        car = int(row['車'])
+        handy = int(row.get('ハンデ', 0))
+        config = HANDE_CONFIG[min(max(0, (handy // 10) * 10), 100)]
         
-    base_img = Image.open(base_path).convert('RGBA')
-    draw = ImageDraw.Draw(base_img)
+        curr_x, curr_y = config['x'], config['y']
+        move_left = total_dist
+        history = [(curr_x, curr_y)]
 
-    # オートレース公式車番色
-    CAR_COLORS = {
-        1: (255, 255, 255, 255), 2: (0, 0, 0, 255), 3: (255, 0, 0, 255),
-        4: (0, 0, 255, 255), 5: (255, 255, 0, 255), 6: (0, 128, 0, 255),
-        7: (255, 165, 0, 255), 8: (255, 105, 180, 255),
-    }
+        for pt in WAYPOINTS:
+            # 基本のイン寄りオフセット (8号車を赤線基準にする)
+            lane_offset = (car - 8) * 4 
+            
+            # --- 特別ルール: POINT_A通過時 ---
+            # 全車が1号車スタート位置(y=400)より内側(y>400)を通るように強制
+            if pt == POINT_A:
+                # 8号車(一番外)でも y=410 あたりを通るように調整し、
+                # 1号車はさらに内側の y=438 あたりを通る計算になります
+                target_y = pt['y'] + lane_offset
+                if target_y < 405: # もし405より外側なら補正
+                    target_y = 405 + (car * 2) 
+            else:
+                target_y = pt['y'] + lane_offset
 
-    # 1. 基準の赤線（薄く）
-    if waypoints:
-        for i in range(len(waypoints) - 1):
-            p1, p2 = waypoints[i], waypoints[i+1]
-            draw.line([(p1['x'], p1['y']), (p2['x'], p2['y'])], fill=(255, 0, 0, 60), width=1)
+            target_x = pt['x']
+            d = math.sqrt((target_x - curr_x)**2 + (target_y - curr_y)**2)
+            
+            if move_left > 0 and d > 0:
+                m = min(move_left, d)
+                curr_x += (target_x - curr_x) * (m/d)
+                curr_y += (target_y - curr_y) * (m/d)
+                move_left -= m
+                history.append((curr_x, curr_y))
 
-    # 2. 各車の走行軌跡
-    for item in positions_with_path:
-        car_num = item['car']
-        path = item['path']
-        color = CAR_COLORS.get(car_num, (200, 200, 200, 255))
-        if len(path) >= 2:
-            draw.line(path, fill=color, width=2)
+        final_results.append({
+            'car': car, 
+            'last_pos': (curr_x, curr_y), 
+            'path': history
+        })
+    return final_results
 
-    # 3. 各車アイコン（最前面）
-    for item in positions_with_path:
-        car_num = item['car']
-        x, y = item['last_pos']
-        icon_path = f'assets/car_icons/{car_num}.png'
-        if os.path.exists(icon_path):
-            car_icon = Image.open(icon_path).convert('RGBA')
-            icon_size = (10, 10)
-            car_icon.thumbnail(icon_size, Image.Resampling.LANCZOS)
-            paste_x, paste_y = int(x - icon_size[0]//2), int(y - icon_size[1]//2)
-            base_img.paste(car_icon, (paste_x, paste_y), car_icon)
+def run_simulation(df):
+    results = calculate_rail_positions(df)
+    img_path = visualizer.create_prediction_image(results, waypoints=WAYPOINTS)
+    if img_path:
+        visualizer.send_to_discord(img_path, WEBHOOK_URL)
+        print("POINT_Aで全員が絞り込むモデルを送信しました。")
 
-    output_path = 'prediction_output.png'
-    base_img.save(output_path)
-    return output_path
-
-def send_to_discord(image_path, webhook_url):
-    if not webhook_url: return
-    with open(image_path, 'rb') as f:
-        payload = {'content': '【物理走行ルート可視化：POINT_A絞り込みモデル】'}
-        files = {'file': ('prediction.png', f, 'image/png')}
-        requests.post(webhook_url, data=payload, files=files)
+if __name__ == "__main__":
+    test_data = [{'車': i+1, 'ハンデ': i*10} for i in range(8)]
+    run_simulation(pd.DataFrame(test_data))
