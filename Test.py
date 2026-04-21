@@ -11,7 +11,7 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 # 走行レール（A -> B -> B_2 -> C）
 POINT_A   = {'x': 175, 'y': 420}  # 0m地点
 POINT_B   = {'x': 420, 'y': 410}  # ゴール線
-POINT_B_2 = {'x': 580, 'y': 300}  # コーナー入り口（芝生回避用の中継点）
+POINT_B_2 = {'x': 580, 'y': 320}  # コーナー入り口（芝生回避用の中継点）
 POINT_C   = {'x': 598, 'y': 242}  # コーナーのイン角（ターゲット）
 
 HANDE_CONFIG = {
