@@ -5,15 +5,16 @@ import visualizer
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# 走行レール定義
+# --- 走行レール定義 (B1を追加) ---
 POINT_A   = {'x': 175, 'y': 420}
 POINT_B   = {'x': 420, 'y': 410}
+POINT_B_1 = {'x': 500, 'y': 380}  # ← 新設：コーナーへの導入点
 POINT_B_2 = {'x': 570, 'y': 320}
 POINT_B_3 = {'x': 590, 'y': 280}
 POINT_C   = {'x': 598, 'y': 242}
 
-# 赤線を引く順番
-WAYPOINTS = [POINT_A, POINT_B, POINT_B_2, POINT_B_3, POINT_C]
+# 赤線を引く順番（B1を挿入）
+WAYPOINTS = [POINT_A, POINT_B, POINT_B_1, POINT_B_2, POINT_B_3, POINT_C]
 
 HANDE_CONFIG = {
     0:   {'x': 175, 'y': 400}, 10:  {'x': 120, 'y': 380}, 20:  {'x': 87,  'y': 354},
@@ -26,7 +27,7 @@ def calculate_rail_positions(df):
     df = df.sort_values(['ハンデ', '車'])
     final_results = []
     
-    # 距離計算
+    # 0m選手が完走する全区間の距離を合計 (B1を含む)
     total_dist = 0
     for i in range(len(WAYPOINTS)-1):
         p1, p2 = WAYPOINTS[i], WAYPOINTS[i+1]
@@ -40,9 +41,8 @@ def calculate_rail_positions(df):
         curr_x, curr_y = config['x'], config['y']
         move_left = total_dist
 
-        # スタート -> A -> B -> B2 -> B3 -> C
-        full_path = [POINT_A] + WAYPOINTS[1:]
-        for pt in full_path:
+        # 経路上の各ポイントを順番に消化
+        for pt in WAYPOINTS:
             d = math.sqrt((pt['x'] - curr_x)**2 + (pt['y'] - curr_y)**2)
             if move_left > 0 and d > 0:
                 m = min(move_left, d)
@@ -61,5 +61,6 @@ def run_simulation(df):
         visualizer.send_to_discord(img_path, WEBHOOK_URL)
 
 if __name__ == "__main__":
+    # テストデータ (全ハンデ1台ずつ)
     test_data = [{'車': (i % 8) + 1, 'ハンデ': i*10} for i in range(11)]
     run_simulation(pd.DataFrame(test_data))
