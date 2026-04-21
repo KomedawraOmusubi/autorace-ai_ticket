@@ -40,7 +40,7 @@ CUSTOM_A_POINTS = {
 POINT_B   = {'x': 420, 'y': 410}
 POINT_B_1 = {'x': 500, 'y': 380}
 POINT_B_2 = {'x': 570, 'y': 350}
-POINT_B_3 = {'x': 590,0}
+POINT_B_3 = {'x': 590, 'y': 310}
 POINT_C   = {'x': 600, 'y': 250}
 
 WAYPOINTS_AFTER_A = [
