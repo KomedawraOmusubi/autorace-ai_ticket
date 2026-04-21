@@ -7,16 +7,34 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
 # --- 1. 初期配置（スタート地点） ---
 HANDE_CONFIG = {
-    0:   {'x': 175, 'y': 400}, 10:  {'x': 120, 'y': 380},
-    20:  {'x': 87,  'y': 354}, 30:  {'x': 65,  'y': 323},
-    40:  {'x': 45,  'y': 285}, 50:  {'x': 35,  'y': 245},
-    60:  {'x': 36,  'y': 202}, 70:  {'x': 48,  'y': 163},
-    80:  {'x': 68,  'y': 125}, 90:  {'x': 93,  'y': 92},
+    0:   {'x': 175, 'y': 400},
+    10:  {'x': 120, 'y': 380},
+    20:  {'x': 87,  'y': 354},
+    30:  {'x': 65,  'y': 323},
+    40:  {'x': 45,  'y': 285},
+    50:  {'x': 35,  'y': 245},
+    60:  {'x': 36,  'y': 202},
+    70:  {'x': 48,  'y': 163},
+    80:  {'x': 68,  'y': 125},
+    90:  {'x': 93,  'y': 92},
     100: {'x': 125, 'y': 66}
 }
 
 # --- 2. 各ハンデごとの「仮想A地点」 ---
-CUSTOM_A_POINTS = {h: {'x': 175, 'y': 430} for h in HANDE_CONFIG.keys()}
+# 各ハンデが「最初にどこに絞り込むか」をここで個別に設定できます
+CUSTOM_A_POINTS = {
+    0:   {'x': 175, 'y': 400},
+    10:  {'x': 175, 'y': 390},
+    20:  {'x': 175, 'y': 390},
+    30:  {'x': 175, 'y': 380},
+    40:  {'x': 175, 'y': 370},
+    50:  {'x': 175, 'y': 360},
+    60:  {'x': 175, 'y': 350},
+    70:  {'x': 175, 'y': 340},
+    80:  {'x': 175, 'y': 340},
+    90:  {'x': 175, 'y': 340},
+    100: {'x': 175, 'y': 340}
+}
 
 # --- 3. A地点通過後のウェイポイント ---
 POINT_B   = {'x': 420, 'y': 410}
@@ -26,11 +44,11 @@ POINT_B_3 = {'x': 590, 'y': 300}
 POINT_C   = {'x': 600, 'y': 250}
 
 WAYPOINTS_AFTER_A = [
-    {'name': 'B',   'pos': POINT_B},
-    {'name': 'B_1', 'pos': POINT_B_1},
-    {'name': 'B_2', 'pos': POINT_B_2},
-    {'name': 'B_3', 'pos': POINT_B_3},
-    {'name': 'C',   'pos': POINT_C}
+    {'pos': POINT_B},
+    {'pos': POINT_B_1},
+    {'pos': POINT_B_2},
+    {'pos': POINT_B_3},
+    {'pos': POINT_C}
 ]
 
 def calculate_rail_positions(df):
@@ -46,20 +64,17 @@ def calculate_rail_positions(df):
         curr_x, curr_y = start_pos['x'], start_pos['y']
         history = [(curr_x, curr_y)]
 
-        # --- ロジック修正：8号車を「絶対的な外枠」とする ---
-        # 8号車(car=8)の時、offsetは必ず0
-        # 1-7号車は (car-8) が負になるため、必ずy座標が減少（内側へ移動）する
+        # 8号車を境界（offset=0）とし、他の車は必ずその内側を通る
         lane_offset = (car - 8) * 5
 
         # [STEP 1] A地点（合流）
+        # ここではCUSTOM_A_POINTSの値をそのまま使い、一旦1点に集約させて交差を作る
         target_a = CUSTOM_A_POINTS.get(handy_key, CUSTOM_A_POINTS[0])
-        # A地点では混戦を表現するため、オフセットなしで1点に集約
         history.append((target_a['x'], target_a['y']))
 
         # [STEP 2] B以降のウェイポイント
+        # B_1以降は必ず8号車の内側（lane_offset適用）を走る
         for wp in WAYPOINTS_AFTER_A:
-            # B_1以降、すべてのウェイポイントで8号車のライン（基準値）から
-            # lane_offset分だけ「内側」を通るように計算
             target_x = wp['pos']['x']
             target_y = wp['pos']['y'] + lane_offset
             history.append((target_x, target_y))
