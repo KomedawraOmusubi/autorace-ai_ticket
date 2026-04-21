@@ -36,7 +36,7 @@ CUSTOM_A_POINTS = {
 }
 
 # --- 3. A地点通過後のウェイポイント ---
-POINT_B   = {'x': 455, 'y': 395} # 基準y=410
+POINT_B   = {'x': 455, 'y': 395}
 POINT_B_1 = {'x': 550, 'y': 360}
 POINT_B_2 = {'x': 570, 'y': 350}
 POINT_B_3 = {'x': 590, 'y': 310}
@@ -63,7 +63,7 @@ def calculate_rail_positions(df):
         curr_x, curr_y = start_pos['x'], start_pos['y']
         history = [(curr_x, curr_y)]
 
-        # 8号車を基準に内側へ5pxずつ
+        # 8号車を基準に内側へ5pxずつ（1号車は -35px）
         lane_offset = (car - 8) * 5
 
         # [STEP 1] A地点（合流）
@@ -72,10 +72,14 @@ def calculate_rail_positions(df):
 
         # [STEP 2] B以降のウェイポイント
         for wp in WAYPOINTS_AFTER_A:
-            # --- 1号車（ハンデ0）のポイントBのみ特別指定 ---
-            if car == 1 and wp['name'] == 'B':
-                history.append((wp['pos']['x'], 395))
-                continue
+            # --- 1号車専用の座標指定 ---
+            if car == 1:
+                if wp['name'] == 'B':
+                    history.append((wp['pos']['x'], 395))
+                    continue
+                if wp['name'] == 'B_1':
+                    history.append((wp['pos']['x'], 350)) # 360-35=325ではなく350に固定
+                    continue
 
             target_x = wp['pos']['x']
             target_y = wp['pos']['y'] + lane_offset
@@ -96,5 +100,6 @@ def run_simulation(df):
         visualizer.send_to_discord(img_path, WEBHOOK_URL)
 
 if __name__ == "__main__":
+    # テストデータ: 1号車(ハンデ0)から8号車(ハンデ70)
     test_data = [{'車': i+1, 'ハンデ': i*10} for i in range(8)]
     run_simulation(pd.DataFrame(test_data))
