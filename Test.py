@@ -6,7 +6,7 @@ import visualizer
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
 # 基準座標
-POINT_A   = {'x': 175, 'y': 430} # 8号車がここを目指す（y=400より内側）
+POINT_A   = {'x': 175, 'y': 400} # 8号車がここを目指す（y=400より内側）
 POINT_B   = {'x': 420, 'y': 410}
 POINT_B_1 = {'x': 500, 'y': 380}
 POINT_B_2 = {'x': 570, 'y': 340}
