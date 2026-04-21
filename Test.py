@@ -39,8 +39,8 @@ CUSTOM_A_POINTS = {
 # --- 3. A地点通過後のウェイポイント ---
 POINT_B   = {'x': 420, 'y': 410}
 POINT_B_1 = {'x': 500, 'y': 380}
-POINT_B_2 = {'x': 570, 'y': 340}
-POINT_B_3 = {'x': 590, 'y': 300}
+POINT_B_2 = {'x': 570, 'y': 350}
+POINT_B_3 = {'x': 590,0}
 POINT_C   = {'x': 600, 'y': 250}
 
 WAYPOINTS_AFTER_A = [
