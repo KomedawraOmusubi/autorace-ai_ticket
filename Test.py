@@ -5,9 +5,8 @@ import visualizer
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "YOUR_WEBHOOK_URL_HERE"
 
-# 基準座標（赤線のセンターライン）
-# POINT_Aのyを430に設定。1号車のスタートy=400より確実に内側。
-POINT_A   = {'x': 175, 'y': 430} 
+# 基準座標
+POINT_A   = {'x': 175, 'y': 430} # ここが「8号車」の通過目標になる
 POINT_B   = {'x': 420, 'y': 410}
 POINT_B_1 = {'x': 500, 'y': 380}
 POINT_B_2 = {'x': 570, 'y': 340}
@@ -27,7 +26,7 @@ def calculate_rail_positions(df):
     df = df.sort_values(['ハンデ', '車'])
     final_results = []
     
-    # 0m車の走行距離を基準に算出
+    # 0m車の走行距離（スタート175,400からA,B,Cを回る距離）を基準にする
     total_dist = 0
     ref_x, ref_y = HANDE_CONFIG[0]['x'], HANDE_CONFIG[0]['y']
     for pt in WAYPOINTS:
@@ -43,40 +42,29 @@ def calculate_rail_positions(df):
         move_left = total_dist
         history = [(curr_x, curr_y)]
 
-        # --- 重要：車番ごとに専用の「幅（オフセット）」を計算 ---
-        # 8号車が一番外(y+0)、1号車が一番内(y-28)
+        # --- 重要：(car - 8) により、8号車が基準(offset=0)になる ---
+        # 8号車: offset = 0   -> POINT_A(175, 430)を直撃
+        # 1号車: offset = -28 -> POINT_A(175, 402)を通過（スタートより内側）
         lane_offset = (car - 8) * 4 
 
         for pt in WAYPOINTS:
-            # 各地点（A〜C）において、その車番専用のターゲット座標を作る
             target_x = pt['x']
             target_y = pt['y'] + lane_offset
 
-            # POINT_Aだけ、確実に400の内側を通るようにyを底上げ
-            if pt == POINT_A:
-                target_y = max(410 + (car * 2), target_y)
-
-            # 現在地から、その車専用のターゲットまでの距離を計算
             d = math.sqrt((target_x - curr_x)**2 + (target_y - curr_y)**2)
             
             if move_left > 0 and d > 0:
                 m = min(move_left, d)
-                # 専用ターゲットに向かって進む
                 curr_x += (target_x - curr_x) * (m/d)
                 curr_y += (target_y - curr_y) * (m/d)
                 move_left -= m
                 history.append((curr_x, curr_y))
 
-        final_results.append({
-            'car': car, 
-            'last_pos': (curr_x, curr_y), 
-            'path': history
-        })
+        final_results.append({'car': car, 'last_pos': (curr_x, curr_y), 'path': history})
     return final_results
 
 def run_simulation(df):
     results = calculate_rail_positions(df)
-    # visualizer側は変更不要です
     img_path = visualizer.create_prediction_image(results, waypoints=WAYPOINTS)
     if img_path:
         visualizer.send_to_discord(img_path, WEBHOOK_URL)
