@@ -3,7 +3,7 @@ import requests
 import math
 from PIL import Image, ImageDraw
 
-def create_prediction_image(positions_with_path, waypoints=None, outer_line=None, inner_line=None):
+def create_prediction_image(positions_with_path, waypoints=None, outer_line=None, inner_line=None, **kwargs):
     base_path = 'assets/20260420-163135.jpg'
     if not os.path.exists(base_path):
         # 背景がない場合はグレーのキャンバスを作成
@@ -26,31 +26,32 @@ def create_prediction_image(positions_with_path, waypoints=None, outer_line=None
                        p1[1] + math.sin(angle) * min(d + dash_length, dist))
                 draw.line([start, end], fill=fill, width=width)
 
-    # --- 1. 輪郭点線の描画 ---
+    # --- 1. 輪郭点線の描画（白から黒に変更） ---
+    # fillを (0, 0, 0, 200) に変更して黒の点線に
     if outer_line:
-        draw_dashed_line(outer_line, fill=(255, 255, 255, 180), width=1)
+        draw_dashed_line(outer_line, fill=(0, 0, 0, 200), width=2)
     if inner_line:
-        draw_dashed_line(inner_line, fill=(255, 255, 255, 180), width=1)
+        draw_dashed_line(inner_line, fill=(0, 0, 0, 200), width=2)
 
-    # --- 2. 各車の走行軌跡（実線）はコメントアウト ---
-    """
-    CAR_COLORS = {
-        1: (255, 255, 255, 255), 2: (0, 0, 0, 255), 3: (255, 0, 0, 255),
-        4: (0, 0, 255, 255), 5: (255, 255, 0, 255), 6: (0, 128, 0, 255),
-        7: (255, 165, 0, 255), 8: (255, 105, 180, 255),
-    }
+    # --- 2. 各車の走行軌跡（ハンデ色分けで再有効化） ---
+    # ハンデに応じた色（グラデーション）を定義
+    def get_handy_color(handy):
+        # 0m(白) -> 100m(濃いグレー) への変化例
+        val = int(255 - (handy * 1.5)) # ハンデが大きいほど暗く
+        return (val, val, val, 255)
+
     for item in positions_with_path:
-        car_num = item['car']
         path = item['path']
-        color = CAR_COLORS.get(car_num, (200, 200, 200, 255))
+        handy = item.get('handy', 0) # calculate_rail_positionsから渡されたハンデ値
+        color = get_handy_color(handy)
+        
         if len(path) >= 2:
+            # 走行ラインを描画
             draw.line(path, fill=color, width=2)
-    """
 
     # --- 3. 各車アイコンの描画（現在地のみ） ---
     for item in positions_with_path:
         car_num = item['car']
-        # pathの最後の要素を現在地として使用
         x, y = item['path'][-1]
         icon_path = f'assets/car_icons/{car_num}.png'
         if os.path.exists(icon_path):
@@ -67,6 +68,10 @@ def create_prediction_image(positions_with_path, waypoints=None, outer_line=None
 def send_to_discord(image_path, webhook_url):
     if not webhook_url or webhook_url == "YOUR_WEBHOOK_URL_HERE": return
     with open(image_path, 'rb') as f:
-        payload = {'content': '【物理走行予測：輪郭ガイドモデル】'}
+        payload = {'content': '【物理走行予測：ハンデ別走行ラインモデル】'}
         files = {'file': ('prediction.png', f, 'image/png')}
-        requests.post(webhook_url, data=payload, files=files)
+        try:
+            response = requests.post(webhook_url, data=payload, files=files)
+            response.raise_for_status()
+        except Exception as e:
+            print(f"Discord送信エラー: {e}")
